@@ -5,6 +5,8 @@ export type ApplicationPlatform =
   | "DirectPortal"
   | "Coalition"
   | "StudyLink"
+  | "UAC"
+  | "NeedsVerification"
   | "Other";
 
 export type ConfidenceLevel =
@@ -143,6 +145,8 @@ export interface Essay extends SourceMeta {
   wordLimit?: number;
   characterLimit?: number;
   currentWordCount?: number;
+  currentCharacterCount?: number;
+  content?: string;
   status: EssayStatus;
   linkedApplicationIds: string[];
   linkedGroupIds?: string[];
@@ -168,11 +172,14 @@ export interface DocumentRequirement extends SourceMeta {
   id: string;
   title: string;
   description?: string;
+  category?: string;
   required: boolean;
+  blocksSubmission?: boolean;
   status: DocumentStatus;
   linkedApplicationIds: string[];
   linkedGroupIds?: string[];
   uploadedFileIds?: string[];
+  uploadedFiles?: Array<{ id: string; name: string; size?: number; type?: string; uploadedAt?: string }>;
 }
 
 export interface RecommenderRequirement extends SourceMeta {

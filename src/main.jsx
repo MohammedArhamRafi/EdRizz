@@ -29,13 +29,22 @@ import {
   daysUntil,
   formatDate,
   getLinkedApplicationNames,
-  getUniversitySourceOptions,
   loadAdmissionsState,
   resetAdmissionsState,
   saveAdmissionsState,
   selectors,
   sortDeadlines,
 } from "./admissionsData.js";
+import { getBackendMode } from "./services/backendClient.js";
+import { applicationService } from "./services/applicationService.js";
+import { calendarService } from "./services/calendarService.js";
+import { deadlineService } from "./services/deadlineService.js";
+import { documentService } from "./services/documentService.js";
+import { essayService } from "./services/essayService.js";
+import { recommenderService } from "./services/recommenderService.js";
+import { settingsService } from "./services/settingsService.js";
+import { taskService } from "./services/taskService.js";
+import { universityService } from "./services/universityService.js";
 import "./styles.css";
 
 const AdmissionsContext = createContext(null);
@@ -50,20 +59,77 @@ function AdmissionsProvider({ children }) {
   const [state, dispatch] = useReducer(admissionsReducer, undefined, loadAdmissionsState);
 
   useEffect(() => {
+    let active = true;
+    applicationService.loadInitialData().then((backendState) => {
+      if (active && backendState) dispatch({ type: "HYDRATE_STATE", payload: backendState });
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     saveAdmissionsState(state);
   }, [state]);
 
   const actions = useMemo(
     () => ({
-      addUniversity: (payload) => dispatch({ type: "ADD_UNIVERSITY", payload }),
-      updateTaskStatus: (taskId, status) => dispatch({ type: "UPDATE_TASK_STATUS", taskId, status }),
-      updateEssayStatus: (essayId, status) => dispatch({ type: "UPDATE_ESSAY_STATUS", essayId, status }),
-      updateDocumentStatus: (documentId, status) => dispatch({ type: "UPDATE_DOCUMENT_STATUS", documentId, status }),
-      updateRecommenderStatus: (requirementId, status) => dispatch({ type: "UPDATE_RECOMMENDER_STATUS", requirementId, status }),
-      markDeadlineSubmitted: (deadlineId) => dispatch({ type: "MARK_DEADLINE_SUBMITTED", deadlineId }),
-      addDeadline: (payload) => dispatch({ type: "ADD_DEADLINE", payload }),
-      updateDeadlineDate: (deadlineId, dueDate) => dispatch({ type: "UPDATE_DEADLINE_DATE", deadlineId, dueDate }),
-      updateSettings: (payload) => dispatch({ type: "UPDATE_SETTINGS", payload }),
+      addUniversity: async (payload) => {
+        await applicationService.addUniversityApplication(payload);
+        dispatch({ type: "ADD_UNIVERSITY", payload });
+      },
+      updateTaskStatus: async (taskId, status) => {
+        await taskService.updateTaskStatus(taskId, status);
+        dispatch({ type: "UPDATE_TASK_STATUS", taskId, status });
+      },
+      updateEssayStatus: async (essayId, status) => {
+        await essayService.updateEssayStatus(essayId, status);
+        dispatch({ type: "UPDATE_ESSAY_STATUS", essayId, status });
+      },
+      updateEssayContent: async (essayId, content) => {
+        await essayService.updateEssayContent(essayId, content);
+        dispatch({ type: "UPDATE_ESSAY_CONTENT", essayId, content });
+      },
+      updateDocumentStatus: async (documentId, status) => {
+        await documentService.updateDocumentStatus(documentId, status);
+        dispatch({ type: "UPDATE_DOCUMENT_STATUS", documentId, status });
+      },
+      uploadDocument: async (documentId, file) => {
+        const fileMetadata = await documentService.uploadDocument(documentId, file);
+        dispatch({ type: "UPLOAD_DOCUMENT", documentId, fileMetadata });
+      },
+      markDocumentNotRequired: async (documentId) => {
+        await documentService.markNotRequired(documentId);
+        dispatch({ type: "MARK_DOCUMENT_NOT_REQUIRED", documentId });
+      },
+      addCustomDocument: async (payload) => {
+        await documentService.addCustomDocument(payload);
+        dispatch({ type: "ADD_CUSTOM_DOCUMENT", payload });
+      },
+      updateRecommenderStatus: async (requirementId, status) => {
+        await recommenderService.updateRecommenderStatus(requirementId, status);
+        dispatch({ type: "UPDATE_RECOMMENDER_STATUS", requirementId, status });
+      },
+      markDeadlineSubmitted: async (deadlineId) => {
+        await deadlineService.updateDeadlineStatus(deadlineId, "Submitted");
+        dispatch({ type: "MARK_DEADLINE_SUBMITTED", deadlineId });
+      },
+      addDeadline: async (payload) => {
+        await deadlineService.addCustomDeadline(payload);
+        dispatch({ type: "ADD_DEADLINE", payload });
+      },
+      updateDeadlineDate: async (deadlineId, dueDate) => {
+        await deadlineService.updateDeadlineDate(deadlineId, dueDate);
+        dispatch({ type: "UPDATE_DEADLINE_DATE", deadlineId, dueDate });
+      },
+      deleteDeadline: async (deadlineId) => {
+        await calendarService.deleteCustomEvent(deadlineId);
+        dispatch({ type: "DELETE_DEADLINE", deadlineId });
+      },
+      updateSettings: async (payload) => {
+        await settingsService.updateUserPreferences(payload);
+        dispatch({ type: "UPDATE_SETTINGS", payload });
+      },
       reset: () => dispatch({ type: "RESET", payload: resetAdmissionsState() }),
     }),
     [],
@@ -117,7 +183,7 @@ function App() {
             <strong>Next deadline</strong>
           </div>
           <p>{nextDeadline ? nextDeadline.title : "Add a university to begin"}</p>
-          <span>{nextDeadline ? `${formatDate(nextDeadline.dueDate)} · ${nextDeadline.confidenceLevel}` : "No connected deadlines yet"}</span>
+          <span>{nextDeadline ? `${formatDate(nextDeadline.dueDate)} - ${displayConfidence(nextDeadline.confidenceLevel)}` : "No connected deadlines yet"}</span>
         </section>
       </aside>
 
@@ -167,7 +233,7 @@ function Breadcrumbs({ items }) {
           <button type="button" disabled={!item.onClick} onClick={item.onClick}>
             {item.label}
           </button>
-          {index < items.length - 1 && <span>/</span>}
+          {index < items.length - 1 && <span>&gt;</span>}
         </React.Fragment>
       ))}
     </nav>
@@ -185,6 +251,15 @@ function displayConfidence(level) {
     UserEntered: "User-entered",
     NeedsVerification: "Needs verification",
   }[level] || level || "Needs verification";
+}
+
+function displayPlatform(platform) {
+  return {
+    CommonApp: "Common App",
+    DirectPortal: "Direct portal",
+    StudyLink: "StudyLink",
+    NeedsVerification: "Platform needs verification",
+  }[platform] || platform || "Platform needs verification";
 }
 
 function StatusPill({ value }) {
@@ -208,7 +283,7 @@ function EmptyState({ title, action }) {
     <section className="panel emptyState">
       <Sparkles size={26} />
       <h2>{title}</h2>
-      <p>Add a university to generate linked applications, platform groups, essays, documents, recommenders, deadlines, scholarships, and tasks.</p>
+      <p>Add a university and EdRizz will build the application roadmap, writing work, documents, recommendations, deadlines, scholarships, and tasks around it.</p>
       {action}
     </section>
   );
@@ -229,12 +304,12 @@ function DashboardPage({ onNavigate }) {
 
   return (
     <>
-      <PageHeader eyebrow="Important correction before building" title="One connected application data system">
+      <PageHeader eyebrow="Your admissions command center" title="Today's application plan">
         <button className="primaryButton" onClick={() => onNavigate("universities")}><Plus size={18} /> Add university</button>
       </PageHeader>
 
       {apps.length === 0 ? (
-        <EmptyState title="No applications yet" action={<button className="primaryButton" onClick={() => onNavigate("universities")}><Plus size={18} /> Add UCL, KCL, or NYUAD</button>} />
+        <EmptyState title="Start by adding a university" action={<button className="primaryButton" onClick={() => onNavigate("universities")}><Plus size={18} /> Add a university</button>} />
       ) : (
         <>
           <section className="nextMoveHero">
@@ -243,7 +318,7 @@ function DashboardPage({ onNavigate }) {
               <h2>{nextMove?.title || "Everything looks calm"}</h2>
               <span>
                 {nextMove
-                  ? `${nextMove.priority} priority · affects ${nextMove.linkedApplicationIds.length} application${nextMove.linkedApplicationIds.length === 1 ? "" : "s"} · ${displayConfidence(nextMove.confidenceLevel)}`
+                  ? `${nextMove.priority} priority - affects ${nextMove.linkedApplicationIds.length} application${nextMove.linkedApplicationIds.length === 1 ? "" : "s"} - ${displayConfidence(nextMove.confidenceLevel)}`
                   : "No open tasks"}
               </span>
             </div>
@@ -254,7 +329,7 @@ function DashboardPage({ onNavigate }) {
           </section>
 
           <section className="statsGrid">
-            <StatCard icon={GraduationCap} label="Active applications" value={apps.length} detail={`${groups.length} platform group${groups.length === 1 ? "" : "s"}`} />
+            <StatCard icon={GraduationCap} label="Active applications" value={apps.length} detail={`${groups.length} shared application setup${groups.length === 1 ? "" : "s"}`} />
             <StatCard icon={CalendarDays} label="Next deadline" value={deadlines[0] ? formatDate(deadlines[0].dueDate) : "None"} detail={deadlines[0]?.title || "No connected deadline"} />
             <StatCard icon={FilePenLine} label="Essay progress" value={`${essays.filter((essay) => essay.status === "Complete").length}/${essays.length}`} detail="Shared essays count once" />
             <StatCard icon={CircleAlert} label="Needs verification" value={needsVerification.length} detail={`${dueThisWeek} task${dueThisWeek === 1 ? "" : "s"} due this week`} />
@@ -273,7 +348,7 @@ function DashboardPage({ onNavigate }) {
                   <article className="connectedRow" key={app.id}>
                     <div>
                       <strong>{app.universityName}</strong>
-                      <span>{app.programName} · {app.platform}</span>
+                      <span>{app.programName} - {displayPlatform(app.platform)}</span>
                     </div>
                     <ProgressBar value={app.progressPercentage} />
                     <RiskBadge value={app.riskLevel} />
@@ -328,69 +403,164 @@ function Metric({ label, value }) {
 function UniversitiesPage() {
   const { state, actions } = useAdmissions();
   const [query, setQuery] = useState("");
-  const [programName, setProgramName] = useState("BSc Computer Science");
-  const [intake, setIntake] = useState("Fall 2027");
+  const [programName, setProgramName] = useState(state.settings.intendedMajors?.[0] || "Computer Science");
+  const [country, setCountry] = useState("");
+  const [city, setCity] = useState("");
+  const [degreeLevel, setDegreeLevel] = useState(state.settings.defaultApplicationLevel || "undergraduate");
+  const [intake, setIntake] = useState(state.settings.preferredIntake || "Fall 2027");
   const [platform, setPlatform] = useState("Auto");
-  const sources = getUniversitySourceOptions();
-  const filtered = sources.filter((item) => item.name.toLowerCase().includes(query.toLowerCase()) || item.aliases.some((alias) => alias.includes(query.toLowerCase())));
+  const [results, setResults] = useState([]);
+  const [resultMeta, setResultMeta] = useState({ source: getBackendMode(), total: 0 });
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [manualOpen, setManualOpen] = useState(false);
 
   function add(source) {
-    actions.addUniversity({ name: source.name, country: source.country, programName: programName || source.defaultProgram, intake, platform });
+    actions.addUniversity({
+      name: source.name,
+      country: source.country,
+      programName: programName || source.defaultProgram,
+      intake,
+      level: degreeLevel,
+      platform,
+      source,
+    });
   }
+
+  function runSearch() {
+    setIsSearching(true);
+    setSearchError("");
+    universityService
+      .searchUniversities(query, { country, city, programName, degreeLevel, platform, intake })
+      .then((data) => {
+        setResults(data.results);
+        setResultMeta({ source: data.source, total: data.total, error: data.error });
+        if (data.error) setSearchError(data.error);
+      })
+      .catch((error) => {
+        setResults([]);
+        setResultMeta({ source: "error", total: 0 });
+        setSearchError(error.message || "Could not search universities.");
+      })
+      .finally(() => setIsSearching(false));
+  }
+
+  useEffect(() => {
+    const id = window.setTimeout(runSearch, 250);
+    return () => window.clearTimeout(id);
+  }, [query, country, city, programName, degreeLevel, platform, intake]);
 
   return (
     <>
-      <PageHeader eyebrow="Add university flow" title="Create connected application data">
+      <PageHeader eyebrow="Add a university" title="Review application setup">
         <button className="secondaryButton" onClick={() => actions.reset()}><RefreshCw size={17} /> Reset local data</button>
       </PageHeader>
 
       <section className="panel addFlowPanel">
         <div className="formGrid">
           <label>
-            <span>Search/select university</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="UCL, King's, NYU Abu Dhabi..." />
+            <span>Search universities</span>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="UCL, Toronto, MIT, NYU..." />
           </label>
           <label>
-            <span>Select program</span>
+            <span>Program or major</span>
             <input value={programName} onChange={(event) => setProgramName(event.target.value)} placeholder="BSc Computer Science" />
+          </label>
+          <label>
+            <span>Country</span>
+            <input value={country} onChange={(event) => setCountry(event.target.value)} placeholder="United Kingdom" />
+          </label>
+          <label>
+            <span>City</span>
+            <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="London" />
           </label>
           <label>
             <span>Select intake</span>
             <input value={intake} onChange={(event) => setIntake(event.target.value)} placeholder="Fall 2027" />
           </label>
           <label>
+            <span>Degree level</span>
+            <select value={degreeLevel} onChange={(event) => setDegreeLevel(event.target.value)}>
+              <option value="undergraduate">Undergraduate</option>
+              <option value="graduate">Graduate</option>
+            </select>
+          </label>
+          <label>
             <span>Confirm application platform</span>
             <select value={platform} onChange={(event) => setPlatform(event.target.value)}>
-              <option>Auto</option>
-              <option>UCAS</option>
-              <option>CommonApp</option>
-              <option>OUAC</option>
-              <option>DirectPortal</option>
-              <option>Coalition</option>
-              <option>StudyLink</option>
-              <option>Other</option>
+              <option value="Auto">Auto</option>
+              <option value="UCAS">UCAS</option>
+              <option value="CommonApp">Common App</option>
+              <option value="OUAC">OUAC</option>
+              <option value="DirectPortal">Direct Portal</option>
+              <option value="Coalition">Coalition</option>
+              <option value="StudyLink">StudyLink</option>
+              <option value="UAC">UAC</option>
+              <option value="NeedsVerification">Needs verification</option>
+              <option value="Other">Other</option>
             </select>
           </label>
         </div>
         <p className="connectedNote">
-          UK undergraduate choices auto-link to one UCAS group. UCAS personal statement, reference, fee task, deadline, and shared documents are reused instead of duplicated.
+          Search uses the configured backend when available, otherwise the project university data source. Shared tasks are detected automatically when applications use the same platform.
         </p>
       </section>
 
+      <section className="searchStatusRow">
+        <div>
+          <strong>{isSearching ? "Searching..." : `${resultMeta.total} result${resultMeta.total === 1 ? "" : "s"}`}</strong>
+          <span>{resultMeta.source === "fallback" ? "Using demo fallback because the data source failed." : `Source: ${resultMeta.source || getBackendMode()}`}</span>
+        </div>
+        {searchError && <button className="secondaryButton" onClick={runSearch}><RefreshCw size={16} /> Retry</button>}
+      </section>
+
+      {searchError && <p className="directoryError">{searchError}</p>}
+      {!isSearching && results.length === 0 && (
+        <section className="panel emptyState compactEmpty">
+          <h2>No universities found</h2>
+          <p>Try a broader university name, country, or program. Manual add is available when the data source does not have a result yet.</p>
+          <button className="secondaryButton" onClick={() => setManualOpen((open) => !open)}><Plus size={17} /> Manual add</button>
+        </section>
+      )}
+
+      {manualOpen && (
+        <section className="panel addFlowPanel">
+          <h2>Manual add</h2>
+          <button
+            className="primaryButton"
+            onClick={() => add({
+              name: query || "Custom university",
+              country: country || "Needs verification",
+              city,
+              defaultProgram: programName || "Program to confirm",
+              platform: platform === "Auto" ? "NeedsVerification" : platform,
+              platformConfidenceLevel: "UserEntered",
+              confidenceLevel: "UserEntered",
+              sourceName: "User-entered",
+              notes: "Manual record. Requirements, platform, and deadlines need verification.",
+            })}
+          >
+            <Plus size={17} /> Add manual university
+          </button>
+        </section>
+      )}
+
       <section className="connectedGrid three">
-        {filtered.map((source) => {
+        {results.map((source) => {
           const exists = Object.values(state.universities).some((university) => university.name === source.name);
           return (
             <article className="panel sourceCard" key={source.key}>
               <div>
                 <h2>{source.name}</h2>
-                <p>{source.country} · {source.defaultProgram}</p>
+                <p>{source.country}{source.city ? ` - ${source.city}` : ""} - {source.defaultProgram}</p>
               </div>
               <div className="badgeRow">
-                <span className="pill">{source.platform}</span>
+                <span className="pill">{displayPlatform(source.platform)}</span>
+                {source.rank && <span className="rankPill">QS #{source.rank}</span>}
                 <ConfidenceBadge level={source.confidenceLevel} />
               </div>
               <p>{source.notes}</p>
+              <small className="sourceTiny">{source.sourceName || "University data source"} {source.platformConfidenceLevel === "NeedsVerification" ? "- platform needs verification" : ""}</small>
               <button className="primaryButton" disabled={exists} onClick={() => add(source)}>
                 <Plus size={17} /> {exists ? "Already added" : "Review and add"}
               </button>
@@ -411,7 +581,7 @@ function ApplicationsPage() {
   if (apps.length === 0) {
     return (
       <>
-        <PageHeader eyebrow="Applications" title="Application groups first" />
+        <PageHeader eyebrow="Applications" title="Add your first application" />
         <EmptyState title="Add a university to create applications" />
       </>
     );
@@ -429,13 +599,13 @@ function ApplicationsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Applications" title="Platform groups and university roadmaps" />
+      <PageHeader eyebrow="Applications" title="Applications and roadmaps" />
       <section className="applicationsOverview">
         <div className="panel">
           <div className="panelHeader">
             <div>
-              <p>Top-level applications</p>
-              <h2>Application groups</h2>
+              <p>Shared applications detected</p>
+              <h2>Shared application work</h2>
             </div>
           </div>
           <div className="connectedList">
@@ -446,7 +616,7 @@ function ApplicationsPage() {
                   <span>{group.linkedApplicationIds.map((id) => state.applications[id]?.universityName).filter(Boolean).join(", ")}</span>
                 </div>
                 <ProgressBar value={group.progressPercentage} />
-                <span className="pill">{group.platform}</span>
+                <span className="pill">{displayPlatform(group.platform)}</span>
               </button>
             ))}
           </div>
@@ -464,7 +634,7 @@ function ApplicationsPage() {
               <button className="overviewButton" key={app.id} onClick={() => setView({ type: "application", id: app.id })}>
                 <div>
                   <strong>{app.universityName}</strong>
-                  <span>{app.programName} · {app.platform}</span>
+                  <span>{app.programName} - {displayPlatform(app.platform)}</span>
                 </div>
                 <ProgressBar value={app.progressPercentage} />
                 <RiskBadge value={app.riskLevel} />
@@ -508,12 +678,12 @@ function RoadmapView({ mode, group, application, onBack }) {
         <div>
           <p>{isGroup ? "Grouped platform roadmap" : "University roadmap"}</p>
           <h2>{isGroup ? group.name : application.universityName}</h2>
-          <span>{linkedApps.length} linked university choice{linkedApps.length === 1 ? "" : "s"} · shared tasks update every linked application</span>
+          <span>{linkedApps.length} linked university choice{linkedApps.length === 1 ? "" : "s"} - shared tasks update every linked application</span>
         </div>
         <div>
           <ProgressBar value={isGroup ? group.progressPercentage : application.progressPercentage} />
           <div className="badgeRow">
-            <span className="pill">{isGroup ? group.platform : application.platform}</span>
+            <span className="pill">{displayPlatform(isGroup ? group.platform : application.platform)}</span>
             {!isGroup && <RiskBadge value={application.riskLevel} />}
           </div>
         </div>
@@ -553,7 +723,7 @@ function RoadmapView({ mode, group, application, onBack }) {
                 />
                 <span>
                   <strong>{task.title}</strong>
-                  <small>{task.type} · {task.linkedApplicationIds.length} linked app{task.linkedApplicationIds.length === 1 ? "" : "s"}</small>
+                  <small>{task.type} - {task.linkedApplicationIds.length} linked app{task.linkedApplicationIds.length === 1 ? "" : "s"}</small>
                 </span>
                 <ConfidenceBadge level={task.confidenceLevel} />
               </button>
@@ -595,14 +765,33 @@ function TaskDetailPanel({ task }) {
 function EssaysPage() {
   const { state, actions } = useAdmissions();
   const [selectedId, setSelectedId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [draft, setDraft] = useState("");
   const essays = selectors.getAllEssays(state);
-  const selected = state.essays[selectedId] || essays[0];
+  const selected = state.essays[editingId] || state.essays[selectedId] || essays[0];
   const grouped = groupBy(essays, (essay) => essay.linkedGroupIds?.[0] || essay.linkedApplicationIds?.[0] || "custom");
+  const draftWords = countWords(draft);
+
+  function openEditor(essay) {
+    setSelectedId(essay.id);
+    setEditingId(essay.id);
+    setDraft(essay.content || "");
+  }
+
+  function closeEditor() {
+    setEditingId(null);
+    setDraft("");
+  }
+
+  function saveEssay() {
+    if (!editingId) return;
+    actions.updateEssayContent(editingId, draft);
+  }
 
   return (
     <>
       <PageHeader eyebrow="Essays" title="Shared writing requirements">
-        {selected && <button className="secondaryButton" onClick={() => setSelectedId(null)}>Back to essays</button>}
+        {editingId ? <button className="secondaryButton" onClick={closeEditor}>Back to essays</button> : selected && <button className="secondaryButton" onClick={() => setSelectedId(null)}>Back to essays</button>}
       </PageHeader>
       {essays.length === 0 ? <EmptyState title="No essays yet" /> : (
         <section className="twoColumnLayout">
@@ -628,14 +817,34 @@ function EssaysPage() {
               <Breadcrumbs items={[{ label: "Essays", onClick: () => setSelectedId(null) }, { label: selected.title }]} />
               <h2>{selected.title}</h2>
               <p>{selected.prompt}</p>
+              {editingId ? (
+                <section className="essayEditorPanel">
+                  <textarea
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    placeholder="Write your essay here..."
+                    aria-label={`Editor for ${selected.title}`}
+                  />
+                  <div className="editorMeta">
+                    <span>{draftWords} words</span>
+                    <span>{draft.length} characters</span>
+                    <span>Status: {selected.status.replace(/([a-z])([A-Z])/g, "$1 $2")}</span>
+                  </div>
+                </section>
+              ) : null}
               <dl className="detailFacts">
                 <div><dt>Limit</dt><dd>{selected.wordLimit ? `${selected.wordLimit} words` : selected.characterLimit ? `${selected.characterLimit} characters` : "Needs verification"}</dd></div>
+                <div><dt>Current</dt><dd>{selected.currentWordCount || 0} words / {selected.currentCharacterCount || 0} chars</dd></div>
                 <div><dt>Deadline</dt><dd>{formatDate(state.deadlines[selected.deadlineId]?.dueDate)}</dd></div>
                 <div><dt>Linked apps</dt><dd>{getLinkedApplicationNames(state, selected.linkedApplicationIds).join(", ")}</dd></div>
                 <div><dt>Source</dt><dd>{selected.sourceName || "Needs verification"}</dd></div>
               </dl>
               <div className="buttonStack">
-                <button className="primaryButton" onClick={() => actions.updateEssayStatus(selected.id, "InProgress")}><FilePenLine size={17} /> Open editor</button>
+                {editingId ? (
+                  <button className="primaryButton" onClick={saveEssay}><FilePenLine size={17} /> Save essay</button>
+                ) : (
+                  <button className="primaryButton" onClick={() => openEditor(selected)}><FilePenLine size={17} /> Open editor</button>
+                )}
                 <button className="secondaryButton" onClick={() => actions.updateEssayStatus(selected.id, "Complete")}><Check size={17} /> Mark complete</button>
                 <button className="secondaryButton" onClick={() => actions.updateEssayStatus(selected.id, "NeedsReview")}><Sparkles size={17} /> Request EdRizz review</button>
               </div>
@@ -650,8 +859,10 @@ function EssaysPage() {
 function DocumentsPage() {
   const { state, actions } = useAdmissions();
   const [selectedId, setSelectedId] = useState(null);
+  const [customDoc, setCustomDoc] = useState({ title: "", category: "Needs verification", applicationId: "" });
   const documents = selectors.getAllDocuments(state);
   const selected = state.documents[selectedId] || documents[0];
+  const grouped = groupBy(documents, (doc) => doc.category || (doc.confidenceLevel === "NeedsVerification" ? "Needs verification" : "University-specific"));
 
   return (
     <>
@@ -659,15 +870,27 @@ function DocumentsPage() {
       {documents.length === 0 ? <EmptyState title="No documents yet" /> : (
         <section className="twoColumnLayout">
           <div className="panel connectedList">
-            {documents.map((doc) => (
-              <button className="overviewButton" key={doc.id} onClick={() => setSelectedId(doc.id)}>
-                <div>
-                  <strong>{doc.title}</strong>
-                  <span>Required by {doc.linkedApplicationIds.length} application{doc.linkedApplicationIds.length === 1 ? "" : "s"}</span>
-                </div>
-                <StatusPill value={doc.status} />
-                <ConfidenceBadge level={doc.confidenceLevel} />
-              </button>
+            <section className="compactForm">
+              <input value={customDoc.title} onChange={(event) => setCustomDoc({ ...customDoc, title: event.target.value })} placeholder="Add custom document" />
+              <select value={customDoc.category} onChange={(event) => setCustomDoc({ ...customDoc, category: event.target.value })}>
+                {["Academic", "Identity", "Testing", "Financial", "Portfolio/supporting", "University-specific", "Needs verification"].map((category) => <option key={category}>{category}</option>)}
+              </select>
+              <button className="secondaryButton" onClick={() => customDoc.title && actions.addCustomDocument(customDoc)}><Plus size={16} /> Add</button>
+            </section>
+            {Object.entries(grouped).map(([category, items]) => (
+              <section className="groupBlock" key={category}>
+                <h2>{category}</h2>
+                {items.map((doc) => (
+                  <button className="overviewButton" key={doc.id} onClick={() => setSelectedId(doc.id)}>
+                    <div>
+                      <strong>{doc.title}</strong>
+                      <span>{doc.required ? "Required" : "Optional"} by {doc.linkedApplicationIds.length} application{doc.linkedApplicationIds.length === 1 ? "" : "s"}{doc.blocksSubmission ? " - blocks submission" : ""}</span>
+                    </div>
+                    <StatusPill value={doc.status} />
+                    <ConfidenceBadge level={doc.confidenceLevel} />
+                  </button>
+                ))}
+              </section>
             ))}
           </div>
           {selected && (
@@ -676,13 +899,26 @@ function DocumentsPage() {
               <h2>{selected.title}</h2>
               <p>{selected.description}</p>
               <dl className="detailFacts">
+                <div><dt>Category</dt><dd>{selected.category || "Needs verification"}</dd></div>
+                <div><dt>Required</dt><dd>{selected.required ? "Required" : "Optional / not required"}</dd></div>
+                <div><dt>Blocks</dt><dd>{selected.blocksSubmission ? "Blocks submission" : "Does not block submission"}</dd></div>
                 <div><dt>Linked apps</dt><dd>{getLinkedApplicationNames(state, selected.linkedApplicationIds).join(", ")}</dd></div>
+                <div><dt>File</dt><dd>{selected.uploadedFiles?.[selected.uploadedFiles.length - 1]?.name || "No file uploaded"}</dd></div>
+                <div><dt>Updated</dt><dd>{selected.lastUpdatedAt ? new Date(selected.lastUpdatedAt).toLocaleDateString() : "Not yet"}</dd></div>
                 <div><dt>Source</dt><dd>{selected.sourceName || "Needs verification"}</dd></div>
                 <div><dt>Confidence</dt><dd><ConfidenceBadge level={selected.confidenceLevel} /></dd></div>
               </dl>
-              <button className="primaryButton" onClick={() => actions.updateDocumentStatus(selected.id, selected.status === "Uploaded" ? "InProgress" : "Uploaded")}>
-                <Upload size={17} /> {selected.status === "Uploaded" ? "Mark needs update" : "Mark uploaded"}
-              </button>
+              <label className="fileAction">
+                <Upload size={17} />
+                <span>Upload or replace file</span>
+                <input type="file" onChange={(event) => event.target.files?.[0] && actions.uploadDocument(selected.id, event.target.files[0])} />
+              </label>
+              <div className="buttonStack">
+                <button className="primaryButton" onClick={() => actions.updateDocumentStatus(selected.id, selected.status === "Uploaded" ? "InProgress" : "Uploaded")}>
+                  <Upload size={17} /> {selected.status === "Uploaded" ? "Mark needs update" : "Mark uploaded"}
+                </button>
+                <button className="secondaryButton" onClick={() => actions.markDocumentNotRequired(selected.id)}>Mark not required</button>
+              </div>
             </aside>
           )}
         </section>
@@ -696,23 +932,42 @@ function RecommendersPage() {
   const [selectedId, setSelectedId] = useState(null);
   const recs = selectors.getAllRecommenders(state);
   const selected = state.recommenderRequirements[selectedId] || recs[0];
+  const people = Object.values(state.recommenderPeople || {});
+  const grouped = groupBy(recs, (rec) => rec.platform || "Custom recommendation");
 
   return (
     <>
-      <PageHeader eyebrow="Recommenders" title="Shared reference requirements" />
+      <PageHeader eyebrow="Recommenders" title="References and recommenders" />
       {recs.length === 0 ? <EmptyState title="No recommender requirements yet" /> : (
         <section className="twoColumnLayout">
           <div className="panel connectedList">
-            {recs.map((rec) => (
-              <button className="overviewButton" key={rec.id} onClick={() => setSelectedId(rec.id)}>
-                <div>
-                  <strong>{rec.title}</strong>
-                  <span>{rec.platform || "Application"} · linked to {rec.linkedApplicationIds.length} application{rec.linkedApplicationIds.length === 1 ? "" : "s"}</span>
-                </div>
-                <StatusPill value={rec.status} />
-                <ConfidenceBadge level={rec.confidenceLevel} />
-              </button>
+            <section className="groupBlock">
+              <h2>Recommendation requirements</h2>
+            </section>
+            {Object.entries(grouped).map(([platformName, items]) => (
+              <section className="groupBlock" key={platformName}>
+                <h2>{displayPlatform(platformName)}</h2>
+                {items.map((rec) => (
+                  <button className="overviewButton" key={rec.id} onClick={() => setSelectedId(rec.id)}>
+                    <div>
+                      <strong>{rec.title}</strong>
+                      <span>{rec.required ? "Required" : "Optional"} - linked to {rec.linkedApplicationIds.length} application{rec.linkedApplicationIds.length === 1 ? "" : "s"}</span>
+                    </div>
+                    <StatusPill value={rec.status} />
+                    <ConfidenceBadge level={rec.confidenceLevel} />
+                  </button>
+                ))}
+              </section>
             ))}
+            <section className="groupBlock">
+              <h2>Recommender people</h2>
+              {people.length === 0 ? <p className="connectedNote">No people assigned yet. Requirements can still be tracked by platform.</p> : people.map((person) => (
+                <article className="connectedRow" key={person.id}>
+                  <div><strong>{person.name}</strong><span>{person.role}</span></div>
+                  <StatusPill value={person.status || "NotRequested"} />
+                </article>
+              ))}
+            </section>
           </div>
           {selected && (
             <aside className="panel detailPanel">
@@ -721,6 +976,8 @@ function RecommendersPage() {
               <dl className="detailFacts">
                 <div><dt>Due</dt><dd>{formatDate(selected.dueDate)}</dd></div>
                 <div><dt>Linked apps</dt><dd>{getLinkedApplicationNames(state, selected.linkedApplicationIds).join(", ")}</dd></div>
+                <div><dt>Assigned to</dt><dd>{selected.recommenderId ? state.recommenderPeople?.[selected.recommenderId]?.name : "Not assigned"}</dd></div>
+                <div><dt>Notes</dt><dd>{selected.notes || "No notes yet"}</dd></div>
                 <div><dt>Source</dt><dd>{selected.sourceName || "Needs verification"}</dd></div>
               </dl>
               <div className="buttonStack">
@@ -771,7 +1028,7 @@ function DeadlinesPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Deadlines" title="Chronological connected roadmap" />
+      <PageHeader eyebrow="Deadlines" title="Upcoming dates and readiness" />
       <section className="panel addDeadlineBar">
         <input value={newDeadline.title} onChange={(event) => setNewDeadline({ ...newDeadline, title: event.target.value })} placeholder="Add custom deadline" />
         <input type="date" value={newDeadline.dueDate} onChange={(event) => setNewDeadline({ ...newDeadline, dueDate: event.target.value })} />
@@ -791,7 +1048,7 @@ function DeadlinesPage() {
                   <button className="overviewButton" key={deadline.id} onClick={() => setSelectedId(deadline.id)}>
                     <div>
                       <strong>{deadline.title}</strong>
-                      <span>{formatDate(deadline.dueDate)} · {deadline.type} · {deadline.linkedApplicationIds.length} linked</span>
+                      <span>{formatDate(deadline.dueDate)} - {deadline.type} - {deadline.linkedApplicationIds.length} linked</span>
                     </div>
                     <RiskBadge value={deadline.riskLevel} />
                     <ConfidenceBadge level={deadline.confidenceLevel} />
@@ -832,35 +1089,59 @@ function TasksPage() {
       if (filter === "week") return daysUntil(task.dueDate) <= 7;
       if (filter === "blocked") return task.status === "Blocked";
       if (filter === "needs") return ["NeedsVerification", "Outdated", "AIExtracted"].includes(task.confidenceLevel);
+      if (filter === "essays") return task.type === "Essay";
+      if (filter === "documents") return task.type === "Document";
+      if (filter === "recommendations") return task.type === "Recommendation";
+      if (filter === "deadlines") return task.type === "Application" || task.type === "Review" || task.type === "Payment";
+      if (filter === "scholarships") return task.type === "Scholarship";
+      if (filter === "verification") return task.type === "Verification";
       if (filter === "open") return task.status !== "Complete";
       return true;
     })
     .sort((a, b) => daysUntil(a.dueDate) - daysUntil(b.dueDate));
+  const grouped = groupTasksForPage(tasks);
 
   return (
     <>
-      <PageHeader eyebrow="Tasks" title="Every actionable item in one list" />
+      <PageHeader eyebrow="Tasks" title="What to work on next" />
       <div className="deadlineQuickFilters">
-        {[["all", "All"], ["open", "Open"], ["week", "This week"], ["blocked", "Blocked"], ["needs", "Needs verification"]].map(([key, label]) => (
+        {[
+          ["all", "All"],
+          ["open", "Open"],
+          ["week", "Due soon"],
+          ["blocked", "Blocked"],
+          ["needs", "Needs verification"],
+          ["essays", "Essays"],
+          ["documents", "Documents"],
+          ["recommendations", "Recommendations"],
+          ["deadlines", "Deadlines"],
+          ["scholarships", "Scholarships"],
+          ["verification", "Verification"],
+        ].map(([key, label]) => (
           <button key={key} onClick={() => setFilter(key)}>{label}</button>
         ))}
       </div>
       {tasks.length === 0 ? <EmptyState title="No matching tasks" /> : (
         <section className="panel connectedList">
-          {tasks.map((task) => (
-            <article className="taskLine" key={task.id}>
-              <input
-                type="checkbox"
-                checked={task.status === "Complete"}
-                onChange={() => actions.updateTaskStatus(task.id, task.status === "Complete" ? "InProgress" : "Complete")}
-              />
-              <span>
-                <strong>{task.title}</strong>
-                <small>{formatDate(task.dueDate)} · {task.priority} · {getLinkedApplicationNames(state, task.linkedApplicationIds).join(", ")}</small>
-              </span>
-              <StatusPill value={task.status} />
-              <ConfidenceBadge level={task.confidenceLevel} />
-            </article>
+          {Object.entries(grouped).map(([label, items]) => (
+            <section className="groupBlock" key={label}>
+              <h2>{label}</h2>
+              {items.map((task) => (
+                <article className="taskLine" key={task.id}>
+                  <input
+                    type="checkbox"
+                    checked={task.status === "Complete"}
+                    onChange={() => actions.updateTaskStatus(task.id, task.status === "Complete" ? "InProgress" : "Complete")}
+                  />
+                  <span>
+                    <strong>{task.title}</strong>
+                    <small>{formatDate(task.dueDate)} - {task.priority} - {task.description || "Keeps your application moving"} - {getLinkedApplicationNames(state, task.linkedApplicationIds).join(", ")}</small>
+                  </span>
+                  <StatusPill value={task.status} />
+                  <ConfidenceBadge level={task.confidenceLevel} />
+                </article>
+              ))}
+            </section>
           ))}
         </section>
       )}
@@ -869,21 +1150,86 @@ function TasksPage() {
 }
 
 function CalendarPage() {
-  const { state } = useAdmissions();
-  const events = selectors.getAllDeadlines(state).sort(sortDeadlines);
+  const { state, actions } = useAdmissions();
+  const [viewMode, setViewMode] = useState("list");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [applicationFilter, setApplicationFilter] = useState("all");
+  const [selectedId, setSelectedId] = useState(null);
+  const [newEvent, setNewEvent] = useState({ title: "", dueDate: "2026-12-01", applicationId: "" });
+  const deadlineEvents = selectors.getAllDeadlines(state).map((deadline) => ({ ...deadline, eventKind: "Deadline" }));
+  const taskEvents = selectors.getAllTasks(state)
+    .filter((task) => task.dueDate)
+    .map((task) => ({
+      id: `calendar-task-${task.id}`,
+      taskId: task.id,
+      title: task.title,
+      type: task.type,
+      dueDate: task.dueDate,
+      linkedApplicationIds: task.linkedApplicationIds,
+      status: task.status,
+      confidenceLevel: task.confidenceLevel,
+      eventKind: "Task",
+    }));
+  const events = [...deadlineEvents, ...taskEvents]
+    .filter((event) => typeFilter === "all" || event.type === typeFilter)
+    .filter((event) => applicationFilter === "all" || event.linkedApplicationIds.includes(applicationFilter))
+    .sort(sortDeadlines);
+  const selected = events.find((event) => event.id === selectedId) || events[0];
+  const monthBuckets = groupBy(events, (event) => formatDate(event.dueDate).split(" ").slice(0, 2).join(" "));
+
   return (
     <>
-      <PageHeader eyebrow="Calendar" title="Deadlines and scheduled tasks" />
+      <PageHeader eyebrow="Calendar" title="Application calendar">
+        <button className="secondaryButton" onClick={() => setViewMode(viewMode === "list" ? "month" : "list")}>{viewMode === "list" ? "Month view" : "List view"}</button>
+      </PageHeader>
+      <section className="panel addDeadlineBar">
+        <input value={newEvent.title} onChange={(event) => setNewEvent({ ...newEvent, title: event.target.value })} placeholder="Add custom event" />
+        <input type="date" value={newEvent.dueDate} onChange={(event) => setNewEvent({ ...newEvent, dueDate: event.target.value })} />
+        <select value={newEvent.applicationId} onChange={(event) => setNewEvent({ ...newEvent, applicationId: event.target.value })}>
+          <option value="">First application</option>
+          {selectors.getApplications(state).map((app) => <option value={app.id} key={app.id}>{app.universityName}</option>)}
+        </select>
+        <button className="primaryButton" onClick={() => newEvent.title && actions.addDeadline({ ...newEvent, type: "Task" })}><Plus size={17} /> Add event</button>
+      </section>
+      <section className="deadlineQuickFilters">
+        <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+          <option value="all">All types</option>
+          {[...new Set(events.map((event) => event.type))].map((type) => <option key={type}>{type}</option>)}
+        </select>
+        <select value={applicationFilter} onChange={(event) => setApplicationFilter(event.target.value)}>
+          <option value="all">All applications</option>
+          {selectors.getApplications(state).map((app) => <option value={app.id} key={app.id}>{app.universityName}</option>)}
+        </select>
+      </section>
       {events.length === 0 ? <EmptyState title="No calendar events yet" /> : (
-        <section className="panel calendarGrid">
-          {events.map((event) => (
-            <article className="calendarEvent" key={event.id}>
-              <strong>{formatDate(event.dueDate)}</strong>
-              <span>{event.title}</span>
-              <small>{event.type} · {getLinkedApplicationNames(state, event.linkedApplicationIds).join(", ")}</small>
-              <ConfidenceBadge level={event.confidenceLevel} />
-            </article>
-          ))}
+        <section className="twoColumnLayout">
+          <div className={`panel ${viewMode === "month" ? "calendarMonthGrid" : "calendarGrid"}`}>
+            {(viewMode === "month" ? Object.entries(monthBuckets).flatMap(([dateLabel, items]) => [{ id: dateLabel, dateLabel, heading: true }, ...items]) : events).map((event) => (
+              event.heading ? <h2 key={event.id}>{event.dateLabel}</h2> : (
+                <button className="calendarEvent" key={event.id} onClick={() => setSelectedId(event.id)}>
+                  <strong>{formatDate(event.dueDate)}</strong>
+                  <span>{event.title}</span>
+                  <small>{event.eventKind} - {event.type} - {getLinkedApplicationNames(state, event.linkedApplicationIds).join(", ")}</small>
+                  <ConfidenceBadge level={event.confidenceLevel} />
+                </button>
+              )
+            ))}
+          </div>
+          {selected && (
+            <aside className="panel detailPanel">
+              <Breadcrumbs items={[{ label: "Calendar", onClick: () => setSelectedId(null) }, { label: selected.title }]} />
+              <h2>{selected.title}</h2>
+              <dl className="detailFacts">
+                <div><dt>Date</dt><dd>{formatDate(selected.dueDate)}</dd></div>
+                <div><dt>Type</dt><dd>{selected.eventKind} - {selected.type}</dd></div>
+                <div><dt>Status</dt><dd>{selected.status}</dd></div>
+                <div><dt>Linked apps</dt><dd>{getLinkedApplicationNames(state, selected.linkedApplicationIds).join(", ")}</dd></div>
+              </dl>
+              {selected.custom && (
+                <button className="secondaryButton" onClick={() => actions.deleteDeadline(selected.id)}><X size={17} /> Delete event</button>
+              )}
+            </aside>
+          )}
         </section>
       )}
     </>
@@ -893,6 +1239,16 @@ function CalendarPage() {
 function SettingsPage() {
   const { state, actions } = useAdmissions();
   const [draft, setDraft] = useState(state.settings);
+  const exportData = () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "edrizz-admissions-data.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <>
       <PageHeader eyebrow="Settings" title="Profile and data preferences">
@@ -923,6 +1279,25 @@ function SettingsPage() {
           <span>Data verification preference</span>
           <input value={draft.verificationPreference} onChange={(event) => setDraft({ ...draft, verificationPreference: event.target.value })} />
         </label>
+        <label>
+          <span>Default application level</span>
+          <select value={draft.defaultApplicationLevel} onChange={(event) => setDraft({ ...draft, defaultApplicationLevel: event.target.value })}>
+            <option value="undergraduate">Undergraduate</option>
+            <option value="graduate">Graduate</option>
+          </select>
+        </label>
+        <label>
+          <span>Deadline reminder days</span>
+          <input value={draft.deadlineReminderDays} onChange={(event) => setDraft({ ...draft, deadlineReminderDays: event.target.value })} />
+        </label>
+        <label>
+          <span>Data source</span>
+          <input readOnly value={getBackendMode()} />
+        </label>
+        <div className="settingsActions">
+          <button className="secondaryButton" type="button" onClick={exportData}>Export data</button>
+          <button className="secondaryButton" type="button" onClick={() => actions.reset()}><RefreshCw size={17} /> Reset local data</button>
+        </div>
       </section>
     </>
   );
@@ -960,6 +1335,35 @@ function groupDeadlines(deadlines) {
       else groups.Later.push(deadline);
     }
   });
+  return Object.fromEntries(Object.entries(groups).filter(([, items]) => items.length));
+}
+
+function countWords(text) {
+  return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
+
+function groupTasksForPage(tasks) {
+  const groups = {
+    Today: [],
+    "This week": [],
+    "High impact": [],
+    Blocked: [],
+    "Needs verification": [],
+    "Student actions": [],
+    "Verification tasks": [],
+  };
+
+  tasks.forEach((task) => {
+    const days = daysUntil(task.dueDate);
+    if (days === 0) groups.Today.push(task);
+    else if (days > 0 && days <= 7) groups["This week"].push(task);
+    else if (task.priority === "Critical" || task.linkedApplicationIds.length > 1) groups["High impact"].push(task);
+    else if (task.status === "Blocked") groups.Blocked.push(task);
+    else if (["NeedsVerification", "Outdated", "AIExtracted"].includes(task.confidenceLevel)) groups["Needs verification"].push(task);
+    else if (task.type === "Verification") groups["Verification tasks"].push(task);
+    else groups["Student actions"].push(task);
+  });
+
   return Object.fromEntries(Object.entries(groups).filter(([, items]) => items.length));
 }
 

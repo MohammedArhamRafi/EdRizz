@@ -1,3 +1,6 @@
+import { clearLocalState, readLocalState, writeLocalState } from "./services/backendClient.js";
+import { FALLBACK_UNIVERSITY_SOURCES } from "./services/demoSeedData.js";
+
 export const CONFIDENCE_LABELS = ["Verified", "PlatformDefault", "AIExtracted", "UserEntered", "NeedsVerification", "Outdated"];
 
 export const ROADMAP_STAGE_TITLES = [
@@ -13,116 +16,10 @@ export const ROADMAP_STAGE_TITLES = [
   "Post-Submission Tracking",
 ];
 
-const STORAGE_KEY = "edrizz-admissions-state-v1";
 const TODAY = new Date("2026-05-18T00:00:00+04:00");
 
-const SOURCE_LIBRARY = [
-  {
-    key: "ucl",
-    name: "University College London",
-    aliases: ["ucl", "university college london"],
-    country: "United Kingdom",
-    city: "London",
-    website: "https://www.ucl.ac.uk",
-    admissionsUrl: "https://www.ucl.ac.uk/prospective-students/undergraduate",
-    programs: ["BSc Computer Science", "Computer Science BSc", "BSc Computer Science"],
-    defaultProgram: "BSc Computer Science",
-    level: "undergraduate",
-    platform: "UCAS",
-    courseUrl: "https://www.ucl.ac.uk/prospective-students/undergraduate/degrees/computer-science-bsc",
-    confidenceLevel: "NeedsVerification",
-    sourceName: "UCL undergraduate course page",
-    notes: "Course-level details must be refreshed before submission. No separate UCL essay is generated without verified source data.",
-  },
-  {
-    key: "kcl",
-    name: "King's College London",
-    aliases: ["kcl", "king's college london", "kings college london"],
-    country: "United Kingdom",
-    city: "London",
-    website: "https://www.kcl.ac.uk",
-    admissionsUrl: "https://www.kcl.ac.uk/study/undergraduate",
-    defaultProgram: "BSc Computer Science",
-    level: "undergraduate",
-    platform: "UCAS",
-    courseUrl: "https://www.kcl.ac.uk/study/undergraduate/courses/computer-science-bsc",
-    confidenceLevel: "NeedsVerification",
-    sourceName: "King's undergraduate course page",
-    notes: "Linked as a UCAS course choice. Supplemental essays are not generated unless verified.",
-  },
-  {
-    key: "edinburgh",
-    name: "University of Edinburgh",
-    aliases: ["edinburgh", "university of edinburgh"],
-    country: "United Kingdom",
-    city: "Edinburgh",
-    website: "https://www.ed.ac.uk",
-    admissionsUrl: "https://www.ed.ac.uk/studying/undergraduate",
-    defaultProgram: "BSc Computer Science",
-    level: "undergraduate",
-    platform: "UCAS",
-    confidenceLevel: "NeedsVerification",
-    sourceName: "University course page",
-    notes: "UCAS choice with course-specific verification tasks.",
-  },
-  {
-    key: "manchester",
-    name: "University of Manchester",
-    aliases: ["manchester", "university of manchester"],
-    country: "United Kingdom",
-    city: "Manchester",
-    website: "https://www.manchester.ac.uk",
-    admissionsUrl: "https://www.manchester.ac.uk/study/undergraduate/",
-    defaultProgram: "BSc Computer Science",
-    level: "undergraduate",
-    platform: "UCAS",
-    confidenceLevel: "NeedsVerification",
-    sourceName: "University course page",
-    notes: "UCAS choice with course-specific verification tasks.",
-  },
-  {
-    key: "nyuad",
-    name: "NYU Abu Dhabi",
-    aliases: ["nyu abu dhabi", "nyuad", "new york university abu dhabi"],
-    country: "UAE",
-    city: "Abu Dhabi",
-    website: "https://nyuad.nyu.edu",
-    admissionsUrl: "https://nyuad.nyu.edu/en/admissions.html",
-    defaultProgram: "Computer Science BA",
-    level: "undergraduate",
-    platform: "DirectPortal",
-    confidenceLevel: "NeedsVerification",
-    sourceName: "NYUAD admissions page",
-    notes: "Non-UCAS application. Mock source includes one direct portal statement, marked Needs verification until refreshed.",
-    directEssays: [
-      {
-        title: "NYUAD direct portal statement",
-        essayType: "DirectPortalStatement",
-        prompt: "Confirm the current NYUAD writing requirement in the official portal before drafting.",
-        wordLimit: 400,
-        confidenceLevel: "NeedsVerification",
-      },
-    ],
-  },
-  {
-    key: "toronto",
-    name: "University of Toronto",
-    aliases: ["university of toronto", "toronto", "uoft", "u of t"],
-    country: "Canada",
-    city: "Toronto",
-    website: "https://www.utoronto.ca",
-    admissionsUrl: "https://future.utoronto.ca/apply/",
-    defaultProgram: "Computer Science, Faculty of Arts & Science",
-    level: "undergraduate",
-    platform: "OUAC",
-    confidenceLevel: "NeedsVerification",
-    sourceName: "U of T future students page",
-    notes: "OUAC/platform logic is separate from UCAS.",
-  },
-];
-
 export function getUniversitySourceOptions() {
-  return SOURCE_LIBRARY;
+  return FALLBACK_UNIVERSITY_SOURCES;
 }
 
 export function createInitialAdmissionsState() {
@@ -137,6 +34,7 @@ export function createInitialAdmissionsState() {
     deadlines: {},
     documents: {},
     recommenderRequirements: {},
+    recommenderPeople: {},
     scholarships: {},
     settings: {
       targetCountries: ["United Kingdom", "United States", "Canada", "UAE"],
@@ -145,6 +43,12 @@ export function createInitialAdmissionsState() {
       timezone: "Asia/Dubai",
       notifications: "Weekly planning digest",
       verificationPreference: "Show Needs verification before generated details",
+      defaultApplicationLevel: "undergraduate",
+      deadlineReminderDays: "7, 3, 1",
+    },
+    dataSourceStatus: {
+      mode: "local-data",
+      lastHydratedAt: new Date().toISOString(),
     },
     userProgress: {
       lastUpdatedAt: new Date().toISOString(),
@@ -156,8 +60,8 @@ export function createInitialAdmissionsState() {
 export function loadAdmissionsState() {
   if (typeof window === "undefined") return createInitialAdmissionsState();
   try {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    return saved ? mergeState(createInitialAdmissionsState(), JSON.parse(saved)) : createInitialAdmissionsState();
+    const saved = readLocalState();
+    return saved ? mergeState(createInitialAdmissionsState(), saved) : createInitialAdmissionsState();
   } catch {
     return createInitialAdmissionsState();
   }
@@ -165,11 +69,11 @@ export function loadAdmissionsState() {
 
 export function saveAdmissionsState(state) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  writeLocalState(state);
 }
 
 export function resetAdmissionsState() {
-  if (typeof window !== "undefined") window.localStorage.removeItem(STORAGE_KEY);
+  if (typeof window !== "undefined") clearLocalState();
   return createInitialAdmissionsState();
 }
 
@@ -203,8 +107,9 @@ function addUniqueId(record, field, id) {
 }
 
 function findSource({ name, country }) {
+  if (arguments[0]?.source) return arguments[0].source;
   const normalized = slug(name).replace(/-/g, " ");
-  const source = SOURCE_LIBRARY.find((item) => item.aliases.some((alias) => normalized.includes(alias.replace(/[^a-z0-9]+/g, " ").trim())));
+  const source = FALLBACK_UNIVERSITY_SOURCES.find((item) => item.aliases.some((alias) => normalized.includes(alias.replace(/[^a-z0-9]+/g, " ").trim())));
   if (source) return source;
   return {
     key: slug(name || "custom-university"),
@@ -215,20 +120,20 @@ function findSource({ name, country }) {
     admissionsUrl: "",
     defaultProgram: "Program to confirm",
     level: "undergraduate",
-    platform: determinePlatform({ country, level: "undergraduate" }),
+    platform: determinePlatform({ country, level: "undergraduate", sourcePlatform: "NeedsVerification" }),
+    platformConfidenceLevel: "UserEntered",
     confidenceLevel: "UserEntered",
     sourceName: "User-entered",
     notes: "Created manually. Requirements, deadlines, and platform should be verified.",
   };
 }
 
-export function determinePlatform({ country, level, manualPlatform }) {
+export function determinePlatform({ country, level, manualPlatform, sourcePlatform, platformConfidenceLevel }) {
   if (manualPlatform && manualPlatform !== "Auto") return manualPlatform;
+  if (sourcePlatform && sourcePlatform !== "Auto" && sourcePlatform !== "NeedsVerification") return sourcePlatform;
   if ((country || "").toLowerCase().includes("united kingdom") && (level || "").toLowerCase().includes("undergraduate")) return "UCAS";
-  if ((country || "").toLowerCase().includes("united states")) return "CommonApp";
-  if ((country || "").toLowerCase().includes("canada")) return "OUAC";
-  if ((country || "").toLowerCase().includes("australia")) return "StudyLink";
-  return "DirectPortal";
+  if (platformConfidenceLevel === "Verified" && sourcePlatform) return sourcePlatform;
+  return "NeedsVerification";
 }
 
 export function addUniversityApplication(state, payload) {
@@ -238,6 +143,8 @@ export function addUniversityApplication(state, payload) {
     country: payload.country || source.country,
     level,
     manualPlatform: payload.platform,
+    sourcePlatform: source.platform || source.applicationPlatform,
+    platformConfidenceLevel: source.platformConfidenceLevel,
   });
   const universityId = `uni-${slug(source.name)}`;
   const programName = payload.programName || source.defaultProgram || "Program to confirm";
@@ -250,7 +157,7 @@ export function addUniversityApplication(state, payload) {
 
   let next = structuredClone(state);
   const sourceMeta = {
-    sourceName: source.sourceName || "Structured mock import",
+    sourceName: source.sourceName || "University data source",
     sourceUrl: source.courseUrl || source.admissionsUrl || source.website,
     lastVerifiedAt: source.confidenceLevel === "Verified" ? "2026-05-18" : undefined,
     confidenceLevel: source.confidenceLevel || "NeedsVerification",
@@ -311,6 +218,7 @@ export function addUniversityApplication(state, payload) {
     next = ensureCommonAppGroup(next, applicationId);
     next.applications[applicationId].groupId = "group-commonapp-undergraduate";
   } else {
+    next = ensureIndependentApplicationGroup(next, applicationId, platform);
     next = createDirectApplicationRecords(next, applicationId, source);
   }
 
@@ -319,6 +227,39 @@ export function addUniversityApplication(state, payload) {
   next = createRoadmapStages(next, applicationId, next.applications[applicationId].groupId);
   next = recalculateAll(next);
   return touchRecent(next, applicationId, `Added ${source.name} ${programName}`);
+}
+
+function ensureIndependentApplicationGroup(state, applicationId, platform) {
+  let next = structuredClone(state);
+  const app = next.applications[applicationId];
+  const sharedPlatforms = ["OUAC", "Coalition", "StudyLink", "UAC"];
+  const groupId = sharedPlatforms.includes(platform)
+    ? `group-${slug(platform)}-undergraduate`
+    : `group-${applicationId}-${slug(platform || "application")}`;
+  const groupName = platform === "NeedsVerification"
+    ? `${app.universityName} application platform to verify`
+    : sharedPlatforms.includes(platform)
+      ? `${platform} application group`
+      : `${app.universityName} direct application`;
+
+  if (!next.applicationGroups[groupId]) {
+    next.applicationGroups[groupId] = {
+      id: groupId,
+      platform,
+      name: groupName,
+      country: app.country,
+      linkedApplicationIds: [],
+      sharedTaskIds: [],
+      sharedEssayIds: [],
+      sharedDeadlineIds: [],
+      status: "Planning",
+      progressPercentage: 0,
+    };
+  }
+
+  next.applicationGroups[groupId] = addUniqueId(next.applicationGroups[groupId], "linkedApplicationIds", applicationId);
+  next.applications[applicationId].groupId = groupId;
+  return next;
 }
 
 function requirement(id, title, required, sourceMeta) {
@@ -331,6 +272,7 @@ function ensureUcasGroup(state, applicationId) {
   const deadlineId = "deadline-ucas-submission";
   const essayId = "essay-ucas-personal-statement";
   const referenceId = "rec-ucas-reference";
+  const referenceTaskId = "task-ucas-reference";
   const feeTaskId = "task-ucas-application-fee";
   const reviewTaskId = "task-ucas-final-review";
   const essayTaskId = "task-ucas-personal-statement";
@@ -342,7 +284,7 @@ function ensureUcasGroup(state, applicationId) {
       name: "UCAS undergraduate application",
       country: "United Kingdom",
       linkedApplicationIds: [],
-      sharedTaskIds: [essayTaskId, feeTaskId, reviewTaskId],
+      sharedTaskIds: [essayTaskId, referenceTaskId, feeTaskId, reviewTaskId],
       sharedEssayIds: [essayId],
       sharedDeadlineIds: [deadlineId],
       status: "Planning",
@@ -362,14 +304,14 @@ function ensureUcasGroup(state, applicationId) {
       timezone: "UK time",
       linkedApplicationIds: [],
       linkedGroupIds: [groupId],
-      dependencyTaskIds: [essayTaskId, feeTaskId, reviewTaskId],
+      dependencyTaskIds: [essayTaskId, referenceTaskId, feeTaskId, reviewTaskId],
       status: "NeedsVerification",
       riskLevel: "Medium",
       readinessPercentage: 0,
       sourceName: "UCAS platform default",
       sourceUrl: "https://www.ucas.com/",
       confidenceLevel: "PlatformDefault",
-      notes: "Shared UCAS deadline placeholder. Verify the exact cycle/date for the user's courses before submission.",
+      notes: "Shared UCAS deadline estimate. Verify the exact cycle/date for the user's courses before submission.",
     };
   }
 
@@ -380,7 +322,9 @@ function ensureUcasGroup(state, applicationId) {
       essayType: "UCASPersonalStatement",
       prompt: "Shared UCAS personal statement. No separate UCL/KCL/Edinburgh/Manchester essay is generated without verified source data.",
       characterLimit: 4000,
+      content: "",
       currentWordCount: 0,
+      currentCharacterCount: 0,
       status: "NotStarted",
       linkedApplicationIds: [],
       linkedGroupIds: [groupId],
@@ -411,6 +355,7 @@ function ensureUcasGroup(state, applicationId) {
 
   const sharedTasks = [
     task(essayTaskId, "UCAS personal statement", "Essay", "Critical", true, [applicationId], [groupId], "2027-01-10", "Shared by every UCAS university choice.", "PlatformDefault", { essayId }),
+    task(referenceTaskId, "UCAS reference", "Recommendation", "High", true, [applicationId], [groupId], "2027-01-10", "Ask your school/counselor to prepare the UCAS reference.", "PlatformDefault", { recommenderRequirementId: referenceId }),
     task(feeTaskId, "UCAS application fee", "Payment", "Medium", true, [applicationId], [groupId], "2027-01-12", "Confirm and pay the UCAS application fee.", "PlatformDefault"),
     task(reviewTaskId, "UCAS final review", "Review", "High", true, [applicationId], [groupId], "2027-01-13", "Check UCAS course choices, statement, reference, fee, and submission details.", "PlatformDefault"),
   ];
@@ -429,7 +374,7 @@ function ensureUcasGroup(state, applicationId) {
 
   next.applications[applicationId].deadlineIds = unique([...next.applications[applicationId].deadlineIds, deadlineId]);
   next.applications[applicationId].essayIds = unique([...next.applications[applicationId].essayIds, essayId]);
-  next.applications[applicationId].taskIds = unique([...next.applications[applicationId].taskIds, essayTaskId, feeTaskId, reviewTaskId]);
+  next.applications[applicationId].taskIds = unique([...next.applications[applicationId].taskIds, essayTaskId, referenceTaskId, feeTaskId, reviewTaskId]);
   next.applications[applicationId].recommenderRequirementIds = unique([...next.applications[applicationId].recommenderRequirementIds, referenceId]);
   return next;
 }
@@ -440,6 +385,10 @@ function ensureCommonAppGroup(state, applicationId) {
   const essayId = "essay-commonapp-personal";
   const deadlineId = "deadline-commonapp-final-review";
   const essayTaskId = "task-commonapp-personal-essay";
+  const counselorRecId = "rec-commonapp-counselor";
+  const teacherRecId = "rec-commonapp-teacher";
+  const counselorTaskId = "task-commonapp-counselor-rec";
+  const teacherTaskId = "task-commonapp-teacher-rec";
 
   if (!next.applicationGroups[groupId]) {
     next.applicationGroups[groupId] = {
@@ -447,7 +396,7 @@ function ensureCommonAppGroup(state, applicationId) {
       platform: "CommonApp",
       name: "Common App application",
       linkedApplicationIds: [],
-      sharedTaskIds: [essayTaskId],
+      sharedTaskIds: [essayTaskId, counselorTaskId, teacherTaskId],
       sharedEssayIds: [essayId],
       sharedDeadlineIds: [deadlineId],
       status: "Planning",
@@ -462,7 +411,9 @@ function ensureCommonAppGroup(state, applicationId) {
     essayType: "CommonAppPersonalEssay",
     prompt: "Shared Common App personal essay.",
     wordLimit: 650,
+    content: "",
     currentWordCount: 0,
+    currentCharacterCount: 0,
     status: "NotStarted",
     linkedApplicationIds: [],
     linkedGroupIds: [groupId],
@@ -480,7 +431,7 @@ function ensureCommonAppGroup(state, applicationId) {
     timezone: "local",
     linkedApplicationIds: [],
     linkedGroupIds: [groupId],
-    dependencyTaskIds: [essayTaskId],
+    dependencyTaskIds: [essayTaskId, counselorTaskId, teacherTaskId],
     status: "NeedsVerification",
     riskLevel: "Medium",
     readinessPercentage: 0,
@@ -491,13 +442,51 @@ function ensureCommonAppGroup(state, applicationId) {
   next.tasks[essayTaskId] = next.tasks[essayTaskId]
     ? addUniqueId(next.tasks[essayTaskId], "linkedApplicationIds", applicationId)
     : task(essayTaskId, "Common App personal essay", "Essay", "Critical", true, [applicationId], [groupId], "2026-12-20", "Shared Common App essay.", "PlatformDefault", { essayId });
+  next.recommenderRequirements[counselorRecId] = next.recommenderRequirements[counselorRecId] || {
+    id: counselorRecId,
+    title: "Common App counselor recommendation",
+    required: true,
+    platform: "CommonApp",
+    linkedApplicationIds: [],
+    linkedGroupIds: [groupId],
+    status: "NotRequested",
+    dueDate: "2026-12-20",
+    sourceName: "Common App platform default",
+    sourceUrl: "https://www.commonapp.org/",
+    confidenceLevel: "PlatformDefault",
+    notes: "Confirm each college's recommendation policy.",
+  };
+  next.recommenderRequirements[teacherRecId] = next.recommenderRequirements[teacherRecId] || {
+    id: teacherRecId,
+    title: "Common App teacher recommendation",
+    required: true,
+    platform: "CommonApp",
+    linkedApplicationIds: [],
+    linkedGroupIds: [groupId],
+    status: "NotRequested",
+    dueDate: "2026-12-20",
+    sourceName: "Common App platform default",
+    sourceUrl: "https://www.commonapp.org/",
+    confidenceLevel: "NeedsVerification",
+    notes: "Teacher recommendation count varies by university.",
+  };
+  [counselorRecId, teacherRecId].forEach((id) => {
+    next.recommenderRequirements[id] = addUniqueId(next.recommenderRequirements[id], "linkedApplicationIds", applicationId);
+  });
+  next.tasks[counselorTaskId] = next.tasks[counselorTaskId]
+    ? addUniqueId(next.tasks[counselorTaskId], "linkedApplicationIds", applicationId)
+    : task(counselorTaskId, "Common App counselor recommendation", "Recommendation", "High", true, [applicationId], [groupId], "2026-12-20", "Invite and track counselor recommendation.", "PlatformDefault", { recommenderRequirementId: counselorRecId });
+  next.tasks[teacherTaskId] = next.tasks[teacherTaskId]
+    ? addUniqueId(next.tasks[teacherTaskId], "linkedApplicationIds", applicationId)
+    : task(teacherTaskId, "Common App teacher recommendation", "Recommendation", "High", true, [applicationId], [groupId], "2026-12-20", "Confirm teacher recommendation requirements before requesting.", "NeedsVerification", { recommenderRequirementId: teacherRecId });
 
   next.essays[essayId] = addUniqueId(next.essays[essayId], "linkedApplicationIds", applicationId);
   next.deadlines[deadlineId] = addUniqueId(next.deadlines[deadlineId], "linkedApplicationIds", applicationId);
   next.applications[applicationId].groupId = groupId;
   next.applications[applicationId].essayIds = unique([...next.applications[applicationId].essayIds, essayId]);
   next.applications[applicationId].deadlineIds = unique([...next.applications[applicationId].deadlineIds, deadlineId]);
-  next.applications[applicationId].taskIds = unique([...next.applications[applicationId].taskIds, essayTaskId]);
+  next.applications[applicationId].recommenderRequirementIds = unique([...next.applications[applicationId].recommenderRequirementIds, counselorRecId, teacherRecId]);
+  next.applications[applicationId].taskIds = unique([...next.applications[applicationId].taskIds, essayTaskId, counselorTaskId, teacherTaskId]);
   return next;
 }
 
@@ -512,15 +501,15 @@ function createDirectApplicationRecords(state, applicationId, source) {
     dueTime: "23:59",
     timezone: "local",
     linkedApplicationIds: [applicationId],
-    linkedGroupIds: [],
+    linkedGroupIds: next.applications[applicationId].groupId ? [next.applications[applicationId].groupId] : [],
     dependencyTaskIds: [],
     status: "NeedsVerification",
     riskLevel: "High",
     readinessPercentage: 0,
-    sourceName: source.sourceName || "Structured mock import",
+    sourceName: source.sourceName || "University data source",
     sourceUrl: source.admissionsUrl,
     confidenceLevel: "NeedsVerification",
-    notes: "Direct/non-UCAS deadline generated from structured mock data and must be verified.",
+    notes: "Direct/non-UCAS deadline generated from available source data and must be verified.",
   };
   next.applications[applicationId].deadlineIds.push(deadlineId);
 
@@ -533,14 +522,17 @@ function createDirectApplicationRecords(state, applicationId, source) {
       essayType: essaySource.essayType,
       prompt: essaySource.prompt,
       wordLimit: essaySource.wordLimit,
+      content: "",
+      currentWordCount: 0,
+      currentCharacterCount: 0,
       status: "NotStarted",
       linkedApplicationIds: [applicationId],
-      linkedGroupIds: [],
+      linkedGroupIds: next.applications[applicationId].groupId ? [next.applications[applicationId].groupId] : [],
       deadlineId,
       sourceName: source.sourceName,
       sourceUrl: source.admissionsUrl,
       confidenceLevel: essaySource.confidenceLevel || "NeedsVerification",
-      notes: "Generated only because the structured mock import explicitly contains this requirement.",
+      notes: "Generated only because the source data explicitly contains this requirement.",
     };
     next.tasks[essayTaskId] = task(essayTaskId, essaySource.title, "Essay", "High", true, [applicationId], [], "2026-10-20", essaySource.prompt, "NeedsVerification", { essayId });
     next.applications[applicationId].essayIds.push(essayId);
@@ -555,23 +547,27 @@ function ensureSharedDocuments(state, applicationId, groupId) {
   let next = structuredClone(state);
   const groupIds = groupId ? [groupId] : [];
   const sharedDocs = [
-    ["doc-academic-transcript", "Academic transcript", "Official or school-issued transcript.", "Critical", "2026-12-15"],
-    ["doc-predicted-grades", "Predicted grades", "Predicted or expected grades where required.", "High", "2026-12-15"],
-    ["doc-passport", "Passport", "Identity document for portals, visas, and student records.", "Medium", "2026-12-20"],
-    ["doc-english-test", "English language test score", "IELTS/TOEFL/approved English evidence if required.", "Medium", "2027-01-05"],
+    ["doc-academic-transcript", "Academic transcript", "Official or school-issued transcript.", "Critical", "2026-12-15", "Academic", true],
+    ["doc-predicted-grades", "Predicted grades", "Predicted or expected grades where required.", "High", "2026-12-15", "Academic", true],
+    ["doc-passport", "Passport", "Identity document for portals, visas, and student records.", "Medium", "2026-12-20", "Identity", false],
+    ["doc-english-test", "English language test score", "IELTS/TOEFL/approved English evidence if required.", "Medium", "2027-01-05", "Testing", true],
   ];
 
-  sharedDocs.forEach(([docId, title, description, priority, dueDate]) => {
+  sharedDocs.forEach(([docId, title, description, priority, dueDate, category, blocksSubmission]) => {
     if (!next.documents[docId]) {
       next.documents[docId] = {
         id: docId,
         title,
         description,
+        category,
         required: true,
+        blocksSubmission,
         status: "Missing",
         linkedApplicationIds: [],
         linkedGroupIds: groupIds,
         uploadedFileIds: [],
+        uploadedFiles: [],
+        lastUpdatedAt: nowIso(),
         sourceName: "Platform/application default",
         confidenceLevel: "PlatformDefault",
         notes: "Shared document requirement. Verify exact format per destination.",
@@ -617,7 +613,7 @@ function createUniversitySpecificRecords(state, applicationId, source) {
       linkedGroupIds: app.groupId ? [app.groupId] : [],
       dueDate: index < 2 ? "2026-12-01" : "2026-11-15",
       dependencyIds: [],
-      sourceName: source.sourceName || "Structured mock import",
+      sourceName: source.sourceName || "University data source",
       sourceUrl: source.courseUrl || source.admissionsUrl,
       confidenceLevel,
       notes: suffix === "portfolio-interview" ? "Needs verification; not treated as confirmed." : undefined,
@@ -640,7 +636,7 @@ function createUniversitySpecificRecords(state, applicationId, source) {
     status: "NeedsVerification",
     riskLevel: "Medium",
     readinessPercentage: 0,
-    sourceName: source.sourceName || "Structured mock import",
+    sourceName: source.sourceName || "University data source",
     sourceUrl: source.admissionsUrl,
     confidenceLevel: "NeedsVerification",
     notes: "Scholarship availability is not confirmed. Verify before planning essays or documents.",
@@ -656,7 +652,7 @@ function createUniversitySpecificRecords(state, applicationId, source) {
     documentIds: [],
     status: "NeedsVerification",
     optional: true,
-    sourceName: source.sourceName || "Structured mock import",
+    sourceName: source.sourceName || "University data source",
     sourceUrl: source.admissionsUrl,
     confidenceLevel: "NeedsVerification",
     notes: "Optional funding research item, not a confirmed scholarship application.",
@@ -711,7 +707,7 @@ function task(id, title, type, priority, required, linkedApplicationIds, linkedG
     linkedGroupIds,
     dueDate,
     dependencyIds: [],
-    sourceName: confidenceLevel === "PlatformDefault" ? "Application platform default" : "Structured mock import",
+    sourceName: confidenceLevel === "PlatformDefault" ? "Application platform default" : "University data source",
     confidenceLevel,
     notes: confidenceLevel === "NeedsVerification" ? "Needs verification before treating this as official." : undefined,
     ...extra,
@@ -726,8 +722,16 @@ export function admissionsReducer(state, action) {
       return updateTaskStatus(state, action.taskId, action.status);
     case "UPDATE_ESSAY_STATUS":
       return updateEssayStatus(state, action.essayId, action.status);
+    case "UPDATE_ESSAY_CONTENT":
+      return updateEssayContent(state, action.essayId, action.content);
     case "UPDATE_DOCUMENT_STATUS":
       return updateDocumentStatus(state, action.documentId, action.status);
+    case "UPLOAD_DOCUMENT":
+      return uploadDocument(state, action.documentId, action.fileMetadata);
+    case "MARK_DOCUMENT_NOT_REQUIRED":
+      return markDocumentNotRequired(state, action.documentId);
+    case "ADD_CUSTOM_DOCUMENT":
+      return addCustomDocument(state, action.payload);
     case "UPDATE_RECOMMENDER_STATUS":
       return updateRecommenderStatus(state, action.requirementId, action.status);
     case "MARK_DEADLINE_SUBMITTED":
@@ -736,8 +740,12 @@ export function admissionsReducer(state, action) {
       return addCustomDeadline(state, action.payload);
     case "UPDATE_DEADLINE_DATE":
       return updateDeadlineDate(state, action.deadlineId, action.dueDate);
+    case "DELETE_DEADLINE":
+      return deleteDeadline(state, action.deadlineId);
     case "UPDATE_SETTINGS":
-      return { ...state, settings: { ...state.settings, ...action.payload } };
+      return touchRecent({ ...state, settings: { ...state.settings, ...action.payload } }, "settings", "Updated preferences");
+    case "HYDRATE_STATE":
+      return mergeState(createInitialAdmissionsState(), action.payload || {});
     case "RESET":
       return createInitialAdmissionsState();
     default:
@@ -767,6 +775,7 @@ function updateEssayStatus(state, essayId, status) {
   let next = structuredClone(state);
   if (!next.essays[essayId]) return state;
   next.essays[essayId].status = status;
+  next.essays[essayId].lastUpdatedAt = nowIso();
   Object.values(next.tasks).forEach((taskItem) => {
     if (taskItem.essayId === essayId) taskItem.status = status === "Complete" ? "Complete" : "InProgress";
   });
@@ -774,15 +783,99 @@ function updateEssayStatus(state, essayId, status) {
   return touchRecent(next, essayId, `${next.essays[essayId].title} marked ${status}`);
 }
 
+function updateEssayContent(state, essayId, content) {
+  let next = structuredClone(state);
+  if (!next.essays[essayId]) return state;
+  const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
+  next.essays[essayId] = {
+    ...next.essays[essayId],
+    content,
+    currentWordCount: wordCount,
+    currentCharacterCount: content.length,
+    status: content.trim() ? (next.essays[essayId].status === "Complete" ? "Complete" : "InProgress") : "NotStarted",
+    lastUpdatedAt: nowIso(),
+  };
+  Object.values(next.tasks).forEach((taskItem) => {
+    if (taskItem.essayId === essayId && taskItem.status !== "Complete") taskItem.status = content.trim() ? "InProgress" : "NotStarted";
+  });
+  next = recalculateAll(next);
+  return touchRecent(next, essayId, `${next.essays[essayId].title} saved`);
+}
+
 function updateDocumentStatus(state, documentId, status) {
   let next = structuredClone(state);
   if (!next.documents[documentId]) return state;
   next.documents[documentId].status = status;
+  next.documents[documentId].lastUpdatedAt = nowIso();
   Object.values(next.tasks).forEach((taskItem) => {
     if (taskItem.documentId === documentId) taskItem.status = status === "Uploaded" ? "Complete" : "InProgress";
   });
   next = recalculateAll(next);
   return touchRecent(next, documentId, `${next.documents[documentId].title} marked ${status}`);
+}
+
+function uploadDocument(state, documentId, fileMetadata) {
+  let next = structuredClone(state);
+  if (!next.documents[documentId]) return state;
+  const fileId = fileMetadata?.id || `file-${documentId}-${Date.now()}`;
+  next.documents[documentId] = {
+    ...next.documents[documentId],
+    status: "Uploaded",
+    uploadedFileIds: unique([...(next.documents[documentId].uploadedFileIds || []), fileId]),
+    uploadedFiles: [...(next.documents[documentId].uploadedFiles || []), { ...fileMetadata, id: fileId }],
+    lastUpdatedAt: nowIso(),
+  };
+  Object.values(next.tasks).forEach((taskItem) => {
+    if (taskItem.documentId === documentId) taskItem.status = "Complete";
+  });
+  next = recalculateAll(next);
+  return touchRecent(next, documentId, `${next.documents[documentId].title} uploaded`);
+}
+
+function markDocumentNotRequired(state, documentId) {
+  let next = structuredClone(state);
+  if (!next.documents[documentId]) return state;
+  next.documents[documentId] = {
+    ...next.documents[documentId],
+    required: false,
+    blocksSubmission: false,
+    status: "Uploaded",
+    lastUpdatedAt: nowIso(),
+    notes: "Marked not required by the user. Recheck source before submission.",
+  };
+  Object.values(next.tasks).forEach((taskItem) => {
+    if (taskItem.documentId === documentId) taskItem.status = "Complete";
+  });
+  next = recalculateAll(next);
+  return touchRecent(next, documentId, `${next.documents[documentId].title} marked not required`);
+}
+
+function addCustomDocument(state, payload) {
+  let next = structuredClone(state);
+  const applicationIds = payload.applicationId ? [payload.applicationId] : Object.keys(next.applications);
+  const id = `doc-custom-${Date.now()}`;
+  next.documents[id] = {
+    id,
+    title: payload.title || "Custom document",
+    description: payload.description || "User-added document requirement.",
+    category: payload.category || "Needs verification",
+    required: payload.required !== false,
+    blocksSubmission: !!payload.blocksSubmission,
+    status: "Missing",
+    linkedApplicationIds: applicationIds,
+    linkedGroupIds: [],
+    uploadedFileIds: [],
+    uploadedFiles: [],
+    lastUpdatedAt: nowIso(),
+    sourceName: "User-entered",
+    confidenceLevel: "UserEntered",
+    notes: payload.notes || "User-entered document.",
+  };
+  applicationIds.forEach((applicationId) => {
+    if (next.applications[applicationId]) next.applications[applicationId] = addUniqueId(next.applications[applicationId], "documentIds", id);
+  });
+  next = recalculateAll(next);
+  return touchRecent(next, id, `Added ${next.documents[id].title}`);
 }
 
 function updateRecommenderStatus(state, requirementId, status) {
@@ -824,6 +917,7 @@ function addCustomDeadline(state, payload) {
     readinessPercentage: 0,
     sourceName: "User-entered",
     confidenceLevel: "UserEntered",
+    custom: true,
     notes: "User-entered deadline.",
   };
   applicationIds.forEach((applicationId) => {
@@ -841,6 +935,21 @@ function updateDeadlineDate(state, deadlineId, dueDate) {
   next.deadlines[deadlineId].status = next.deadlines[deadlineId].status === "Submitted" ? "Submitted" : "InProgress";
   next = recalculateAll(next);
   return touchRecent(next, deadlineId, `Updated ${next.deadlines[deadlineId].title}`);
+}
+
+function deleteDeadline(state, deadlineId) {
+  let next = structuredClone(state);
+  const deadline = next.deadlines[deadlineId];
+  if (!deadline || !deadline.custom) return state;
+  delete next.deadlines[deadlineId];
+  Object.values(next.applications).forEach((app) => {
+    app.deadlineIds = (app.deadlineIds || []).filter((id) => id !== deadlineId);
+  });
+  Object.values(next.applicationGroups).forEach((group) => {
+    group.sharedDeadlineIds = (group.sharedDeadlineIds || []).filter((id) => id !== deadlineId);
+  });
+  next = recalculateAll(next);
+  return touchRecent(next, deadlineId, `Deleted ${deadline.title}`);
 }
 
 function touchRecent(state, id, label) {
