@@ -110,6 +110,10 @@ function AdmissionsProvider({ children }) {
         await recommenderService.updateRecommenderStatus(requirementId, status);
         dispatch({ type: "UPDATE_RECOMMENDER_STATUS", requirementId, status });
       },
+      addRecommenderPerson: async (payload) => {
+        await recommenderService.addRecommenderPerson(payload);
+        dispatch({ type: "ADD_RECOMMENDER_PERSON", payload });
+      },
       markDeadlineSubmitted: async (deadlineId) => {
         await deadlineService.updateDeadlineStatus(deadlineId, "Submitted");
         dispatch({ type: "MARK_DEADLINE_SUBMITTED", deadlineId });
@@ -446,6 +450,8 @@ function UniversitiesPage() {
   const [manualOpen, setManualOpen] = useState(false);
   const [platformOverrides, setPlatformOverrides] = useState({});
   const [reviewSource, setReviewSource] = useState(null);
+  const [showAllResults, setShowAllResults] = useState(false);
+  const visibleResults = showAllResults ? results : results.slice(0, 12);
 
   function add(source, overridePlatform) {
     const selectedPlatform = overridePlatform || platform;
@@ -547,8 +553,13 @@ function UniversitiesPage() {
       <section className="searchStatusRow">
         <div>
           <strong>{isSearching ? "Searching..." : `${resultMeta.total} result${resultMeta.total === 1 ? "" : "s"}`}</strong>
-          <span>{resultMeta.source === "fallback" ? "Showing backup results because the university data source failed." : "Showing university matches from your connected data source."}</span>
+          <span>{resultMeta.source === "fallback" ? "Showing backup results because the university data source failed." : "Showing the best matches first. Use country, city, or program to narrow the list."}</span>
         </div>
+        {results.length > 12 && (
+          <button className="secondaryButton" onClick={() => setShowAllResults((value) => !value)}>
+            {showAllResults ? "Show fewer" : `Show all ${results.length}`}
+          </button>
+        )}
         {searchError && <button className="secondaryButton" onClick={runSearch}><RefreshCw size={16} /> Retry</button>}
       </section>
 
@@ -584,7 +595,7 @@ function UniversitiesPage() {
       )}
 
       <section className="connectedGrid three">
-        {results.map((source) => {
+        {visibleResults.map((source) => {
           const exists = Object.values(state.universities).some((university) => university.name === source.name);
           const overridePlatform = platformOverrides[source.key] || "Auto";
           const detectedPlatform = overridePlatform === "Auto" ? source.platform : overridePlatform;
@@ -630,7 +641,11 @@ function UniversitiesPage() {
                 </select>
               </label>
               <p>{source.notes}</p>
-              <small className="sourceTiny">{source.sourceName || "University data source"} - {platformSourceLabel}</small>
+              <details className="dataDetails">
+                <summary>Data details</summary>
+                <small>{source.sourceName || "University data source"} - {platformSourceLabel}</small>
+                {source.sourceUrl && <a href={source.sourceUrl} target="_blank" rel="noreferrer">Open source</a>}
+              </details>
               <button className="primaryButton" disabled={exists} onClick={() => setReviewSource({ ...source, overridePlatform, detectedPlatform, platformConfidence, platformSourceLabel })}>
                 <Plus size={17} /> {exists ? "Already added" : "Review setup"}
               </button>
@@ -1071,6 +1086,7 @@ function DocumentsPage() {
 function RecommendersPage() {
   const { state, actions } = useAdmissions();
   const [selectedId, setSelectedId] = useState(null);
+  const [newPerson, setNewPerson] = useState({ name: "", role: "Teacher", email: "" });
   const recs = selectors.getAllRecommenders(state);
   const selected = state.recommenderRequirements[selectedId] || recs[0];
   const people = Object.values(state.recommenderPeople || {});
@@ -1103,6 +1119,21 @@ function RecommendersPage() {
             ))}
             <section className="groupBlock">
               <h2>Recommender people</h2>
+              <div className="compactForm recommenderForm">
+                <input value={newPerson.name} onChange={(event) => setNewPerson({ ...newPerson, name: event.target.value })} placeholder="Teacher or counselor name" />
+                <input value={newPerson.role} onChange={(event) => setNewPerson({ ...newPerson, role: event.target.value })} placeholder="Role" />
+                <input value={newPerson.email} onChange={(event) => setNewPerson({ ...newPerson, email: event.target.value })} placeholder="Email optional" />
+                <button
+                  className="secondaryButton"
+                  onClick={() => {
+                    if (!newPerson.name.trim()) return;
+                    actions.addRecommenderPerson({ ...newPerson, requirementId: selected?.id });
+                    setNewPerson({ name: "", role: "Teacher", email: "" });
+                  }}
+                >
+                  <Plus size={16} /> Add person
+                </button>
+              </div>
               {people.length === 0 ? (
                 <div className="studentHelpBox">
                   <strong>No people assigned yet</strong>
@@ -1130,6 +1161,7 @@ function RecommendersPage() {
                 <div><dt>Due</dt><dd>{formatDate(selected.dueDate)}</dd></div>
                 <div><dt>Linked apps</dt><dd>{getLinkedApplicationNames(state, selected.linkedApplicationIds).join(", ")}</dd></div>
                 <div><dt>Assigned to</dt><dd>{selected.recommenderId ? state.recommenderPeople?.[selected.recommenderId]?.name : "Not assigned"}</dd></div>
+                <div><dt>Next message</dt><dd>{selected.status === "NotRequested" ? "Ask them if they can support your application." : selected.status === "Requested" ? "Send a polite reminder before the due date." : "Thank them and keep proof of submission."}</dd></div>
                 <div><dt>Notes</dt><dd>{selected.notes || "No notes yet"}</dd></div>
                 <div><dt>Source</dt><dd>{selected.sourceName || "Needs verification"}</dd></div>
               </dl>
@@ -1148,26 +1180,37 @@ function RecommendersPage() {
 function ScholarshipsPage() {
   const { state } = useAdmissions();
   const scholarships = selectors.getAllScholarships(state);
+  const grouped = {
+    "Research next": scholarships.filter((scholarship) => ["NeedsVerification", "Outdated", "AIExtracted"].includes(scholarship.confidenceLevel)),
+    "Ready to work on": scholarships.filter((scholarship) => !["NeedsVerification", "Outdated", "AIExtracted"].includes(scholarship.confidenceLevel)),
+  };
   return (
     <>
       <PageHeader eyebrow="Scholarships" title="Funding to research" />
       {scholarships.length === 0 ? <EmptyState title="No scholarship items yet" /> : (
-        <section className="connectedGrid three">
-          {scholarships.map((scholarship) => (
-            <article className="panel sourceCard" key={scholarship.id}>
-              <h2>{scholarship.title}</h2>
-              <p>{scholarship.notes || "Check whether this funding option applies to you before spending time on an application."}</p>
-              <div className="badgeRow">
-                <StatusPill value={scholarship.status} />
-                <ConfidenceBadge level={scholarship.confidenceLevel} />
+        <section className="panel connectedList">
+          {Object.entries(grouped).map(([label, items]) => items.length > 0 && (
+            <section className="groupBlock" key={label}>
+              <h2>{label}</h2>
+              <div className="connectedGrid three">
+                {items.map((scholarship) => (
+                  <article className="sourceCard" key={scholarship.id}>
+                    <h2>{scholarship.title}</h2>
+                    <p>{scholarship.notes || "Check whether this funding option applies to you before spending time on an application."}</p>
+                    <div className="badgeRow">
+                      <StatusPill value={scholarship.status} />
+                      <ConfidenceBadge level={scholarship.confidenceLevel} />
+                    </div>
+                    <section className="studentHelpBox">
+                      <strong>Next step</strong>
+                      <p>{label === "Research next" ? "Confirm eligibility and deadline first. Only add essays or documents after the official funding page confirms them." : "Start the required scholarship tasks and keep the deadline visible."}</p>
+                    </section>
+                    <p>Possible deadline: {formatDate(state.deadlines[scholarship.deadlineId]?.dueDate)}</p>
+                    <p>Linked application: {getLinkedApplicationNames(state, scholarship.linkedApplicationIds).join(", ")}</p>
+                  </article>
+                ))}
               </div>
-              <section className="studentHelpBox">
-                <strong>Next step</strong>
-                <p>Open the official funding page, check eligibility, then add any confirmed essay or document requirements.</p>
-              </section>
-              <p>Possible deadline: {formatDate(state.deadlines[scholarship.deadlineId]?.dueDate)}</p>
-              <p>Linked application: {getLinkedApplicationNames(state, scholarship.linkedApplicationIds).join(", ")}</p>
-            </article>
+            </section>
           ))}
         </section>
       )}
@@ -1263,8 +1306,16 @@ function DeadlinesPage() {
 function TasksPage() {
   const { state, actions } = useAdmissions();
   const [filter, setFilter] = useState("all");
+  const allOpenTasks = selectors.getAllTasks(state).filter((task) => task.status !== "Complete");
+  const focusTasks = [...allOpenTasks]
+    .sort((a, b) => {
+      const priorityRank = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+      return (priorityRank[a.priority] ?? 4) - (priorityRank[b.priority] ?? 4) || daysUntil(a.dueDate) - daysUntil(b.dueDate);
+    })
+    .slice(0, 3);
   const tasks = selectors.getAllTasks(state)
     .filter((task) => {
+      if (filter === "focus") return focusTasks.some((item) => item.id === task.id);
       if (filter === "week") return daysUntil(task.dueDate) <= 7;
       if (filter === "blocked") return task.status === "Blocked";
       if (filter === "needs") return ["NeedsVerification", "Outdated", "AIExtracted"].includes(task.confidenceLevel);
@@ -1290,6 +1341,7 @@ function TasksPage() {
       <div className="deadlineQuickFilters">
         {[
           ["all", "All"],
+          ["focus", "Focus 3"],
           ["open", "Open"],
           ["week", "Due soon"],
           ["blocked", "Blocked"],
@@ -1357,7 +1409,8 @@ function CalendarPage() {
       confidenceLevel: task.confidenceLevel,
       eventKind: "Task",
     }));
-  const events = [...deadlineEvents, ...taskEvents]
+  const allEvents = [...deadlineEvents, ...taskEvents];
+  const events = allEvents
     .filter((event) => typeFilter === "all" || event.type === typeFilter)
     .filter((event) => applicationFilter === "all" || event.linkedApplicationIds.includes(applicationFilter))
     .sort(sortDeadlines);
@@ -1390,7 +1443,7 @@ function CalendarPage() {
       <section className="deadlineQuickFilters">
         <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
           <option value="all">All types</option>
-          {[...new Set(events.map((event) => event.type))].map((type) => <option key={type}>{type}</option>)}
+          {[...new Set(allEvents.map((event) => event.type))].map((type) => <option key={type}>{type}</option>)}
         </select>
         <select value={applicationFilter} onChange={(event) => setApplicationFilter(event.target.value)}>
           <option value="all">All applications</option>
@@ -1402,7 +1455,7 @@ function CalendarPage() {
           <div className={`panel ${viewMode === "month" ? "calendarMonthGrid" : "calendarGrid"}`}>
             {(viewMode === "month" ? Object.entries(monthBuckets).flatMap(([dateLabel, items]) => [{ id: dateLabel, dateLabel, heading: true }, ...items]) : events).map((event) => (
               event.heading ? <h2 key={event.id}>{event.dateLabel}</h2> : (
-                <button className="calendarEvent" key={event.id} onClick={() => setSelectedId(event.id)}>
+                <button className={`calendarEvent ${eventTypeClass(event.type)}`} key={event.id} onClick={() => setSelectedId(event.id)}>
                   <strong>{formatDate(event.dueDate)}</strong>
                   <span>{event.title}</span>
                   <small>{event.eventKind} - {event.type} - {getLinkedApplicationNames(state, event.linkedApplicationIds).join(", ")}</small>
@@ -1461,6 +1514,7 @@ function SettingsPage() {
         <p>Countries, majors, intake, and timezone help EdRizz suggest better searches, dates, reminders, and application defaults.</p>
       </section>
       <section className="panel settingsGrid">
+        <h2 className="settingsSectionTitle">Student profile</h2>
         <label>
           <span>Target countries</span>
           <input value={draft.targetCountries.join(", ")} onChange={(event) => setDraft({ ...draft, targetCountries: event.target.value.split(",").map((item) => item.trim()) })} />
@@ -1473,6 +1527,7 @@ function SettingsPage() {
           <span>Preferred intake</span>
           <input value={draft.preferredIntake} onChange={(event) => setDraft({ ...draft, preferredIntake: event.target.value })} />
         </label>
+        <h2 className="settingsSectionTitle">Planning defaults</h2>
         <label>
           <span>Timezone</span>
           <input value={draft.timezone} onChange={(event) => setDraft({ ...draft, timezone: event.target.value })} />
@@ -1485,6 +1540,7 @@ function SettingsPage() {
           <span>Data verification preference</span>
           <input value={draft.verificationPreference} onChange={(event) => setDraft({ ...draft, verificationPreference: event.target.value })} />
         </label>
+        <h2 className="settingsSectionTitle">Data and safety</h2>
         <label>
           <span>Default application level</span>
           <select value={draft.defaultApplicationLevel} onChange={(event) => setDraft({ ...draft, defaultApplicationLevel: event.target.value })}>
@@ -1570,6 +1626,10 @@ function deadlineReadinessHint(deadline = {}) {
   if (readiness >= 80) return "Almost ready. Do a final check before the date.";
   if (readiness >= 40) return "Partly ready. Finish the missing linked tasks next.";
   return "Not ready yet. Check the linked tasks before this date.";
+}
+
+function eventTypeClass(type = "") {
+  return `eventType-${String(type).replace(/[^a-z0-9]+/gi, "")}`;
 }
 
 function groupBy(items, getter) {

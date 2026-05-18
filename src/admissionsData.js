@@ -758,6 +758,8 @@ export function admissionsReducer(state, action) {
       return addCustomDocument(state, action.payload);
     case "UPDATE_RECOMMENDER_STATUS":
       return updateRecommenderStatus(state, action.requirementId, action.status);
+    case "ADD_RECOMMENDER_PERSON":
+      return addRecommenderPerson(state, action.payload);
     case "MARK_DEADLINE_SUBMITTED":
       return updateDeadlineStatus(state, action.deadlineId, "Submitted");
     case "ADD_DEADLINE":
@@ -911,6 +913,24 @@ function updateRecommenderStatus(state, requirementId, status) {
   });
   next = recalculateAll(next);
   return touchRecent(next, requirementId, `${next.recommenderRequirements[requirementId].title} marked ${status}`);
+}
+
+function addRecommenderPerson(state, payload) {
+  let next = structuredClone(state);
+  const id = `recommender-${slug(payload.name || "person")}-${Date.now()}`;
+  next.recommenderPeople[id] = {
+    id,
+    name: payload.name || "New recommender",
+    role: payload.role || "Teacher / counselor",
+    email: payload.email || "",
+    status: "NotRequested",
+    notes: payload.notes || "",
+    createdAt: nowIso(),
+  };
+  if (payload.requirementId && next.recommenderRequirements[payload.requirementId]) {
+    next.recommenderRequirements[payload.requirementId].recommenderId = id;
+  }
+  return touchRecent(next, id, `Added recommender ${next.recommenderPeople[id].name}`);
 }
 
 function updateDeadlineStatus(state, deadlineId, status) {

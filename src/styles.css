@@ -3931,6 +3931,27 @@ h3 {
   font-weight: 900;
 }
 
+.dataDetails {
+  display: grid;
+  gap: 5px;
+  color: #60718c;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.dataDetails summary {
+  width: max-content;
+  cursor: pointer;
+  color: #0a48b7;
+  font-weight: 1000;
+}
+
+.dataDetails a {
+  color: #0057d8;
+  font-weight: 1000;
+  text-decoration: none;
+}
+
 .searchStatusRow {
   display: flex;
   align-items: center;
@@ -3968,6 +3989,10 @@ h3 {
   align-items: center;
   padding-bottom: 12px;
   border-bottom: 1px solid #e2ecfb;
+}
+
+.compactForm.recommenderForm {
+  grid-template-columns: minmax(150px, 1fr) minmax(120px, 0.6fr) minmax(160px, 0.8fr) auto;
 }
 
 .sourceCard .primaryButton:disabled {
@@ -4103,10 +4128,37 @@ h3 {
   padding: 14px;
   color: #10245c;
   text-align: left;
+  border-left: 5px solid #94a3b8;
 }
 
 .calendarEvent strong {
   color: #0066ff;
+}
+
+.calendarEvent.eventTypeApplication,
+.calendarEvent.eventTypeReview,
+.calendarEvent.eventTypePayment {
+  border-left-color: #0066ff;
+}
+
+.calendarEvent.eventTypeEssay {
+  border-left-color: #7c3aed;
+}
+
+.calendarEvent.eventTypeDocument {
+  border-left-color: #0891b2;
+}
+
+.calendarEvent.eventTypeRecommendation {
+  border-left-color: #16a34a;
+}
+
+.calendarEvent.eventTypeScholarship {
+  border-left-color: #f59e0b;
+}
+
+.calendarEvent.eventTypeVerification {
+  border-left-color: #f97316;
 }
 
 .calendarMonthGrid {
@@ -4181,6 +4233,15 @@ h3 {
   align-items: end;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.settingsSectionTitle {
+  grid-column: 1 / -1;
+  margin: 8px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid #e2ecfb;
+  color: #10245c;
+  font-size: 16px;
 }
 
 @media (max-width: 1400px) {
