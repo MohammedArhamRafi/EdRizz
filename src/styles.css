@@ -431,6 +431,16 @@ h3 {
   font-weight: 800;
 }
 
+.nextMoveHero em {
+  display: block;
+  max-width: 760px;
+  margin-top: 10px;
+  color: #27415f;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
 .nextMoveActions {
   display: grid;
   gap: 10px;
@@ -439,6 +449,52 @@ h3 {
 .nextMoveActions .primaryButton,
 .nextMoveActions .secondaryButton {
   min-height: 44px;
+}
+
+.studentPlanPanel {
+  margin-bottom: 18px;
+}
+
+.studentStep {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #d6e5ff;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.studentStep > strong {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 999px;
+  color: #061947;
+  background: #ffb020;
+  box-shadow: 2px 2px 0 #ff5b22;
+  font-weight: 1000;
+}
+
+.studentStep h3,
+.studentStep p {
+  margin: 0;
+}
+
+.studentStep h3 {
+  color: #10245c;
+  font-size: 15px;
+}
+
+.studentStep p,
+.studentStep span {
+  display: block;
+  margin-top: 3px;
+  color: #60718c;
+  font-size: 13px;
+  font-weight: 850;
 }
 
 .coachSuggestions {
@@ -3507,13 +3563,30 @@ h3 {
 }
 
 .taskLine {
-  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto auto;
 }
 
 .taskLine input {
   width: 18px;
   height: 18px;
   accent-color: #0066ff;
+}
+
+.taskLine em,
+.calendarEvent em {
+  display: block;
+  margin-top: 4px;
+  color: #27415f;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.taskLine .secondaryButton {
+  min-height: 34px;
+  padding: 0 10px;
+  white-space: nowrap;
 }
 
 .metricRow {
@@ -3690,6 +3763,101 @@ h3 {
   display: grid;
   gap: 12px;
   padding: 16px;
+}
+
+.studentExplainer,
+.studentHelpBox {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #d6e5ff;
+  border-radius: 8px;
+  background: #f7fbff;
+}
+
+.studentExplainer strong,
+.studentHelpBox strong {
+  color: #10245c;
+  font-size: 13px;
+  font-weight: 1000;
+}
+
+.studentExplainer p,
+.studentHelpBox p {
+  margin: 0;
+  color: #60718c;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+.reviewOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(7, 26, 63, 0.42);
+  backdrop-filter: blur(4px);
+}
+
+.reviewPanel {
+  width: min(820px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  display: grid;
+  gap: 16px;
+}
+
+.reviewHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.reviewHero p,
+.reviewHero h2,
+.reviewHero span {
+  margin: 0;
+}
+
+.reviewHero p {
+  color: #0a48b7;
+  font-size: 13px;
+  font-weight: 1000;
+}
+
+.reviewHero h2 {
+  color: #10245c;
+}
+
+.reviewHero span {
+  display: block;
+  margin-top: 5px;
+  color: #60718c;
+  font-weight: 850;
+}
+
+.reviewChecklist {
+  padding: 14px;
+  border-radius: 8px;
+  background: #fffaf0;
+  border: 1px solid #fed7aa;
+}
+
+.reviewChecklist h3 {
+  margin: 0 0 8px;
+  color: #10245c;
+}
+
+.reviewChecklist ul {
+  margin: 0;
+  padding-left: 20px;
+  color: #475569;
+  font-weight: 850;
+  line-height: 1.5;
 }
 
 .platformPreview {
@@ -3886,6 +4054,33 @@ h3 {
   grid-template-columns: minmax(220px, 1fr) 170px 220px auto;
   gap: 10px;
   margin-bottom: 16px;
+  align-items: end;
+}
+
+.addDeadlineBar label {
+  display: grid;
+  gap: 6px;
+}
+
+.addDeadlineBar label span {
+  color: #60718c;
+  font-size: 12px;
+  font-weight: 1000;
+}
+
+.miniDependencyList {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.miniDependencyList span {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f7fbff;
+  color: #27415f;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .connectedDeadlineTimeline {

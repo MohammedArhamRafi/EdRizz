@@ -301,6 +301,13 @@ function DashboardPage({ onNavigate }) {
   const nextMove = selectors.getNextBestMove(state);
   const needsVerification = selectors.getItemsNeedingVerification(state);
   const dueThisWeek = tasks.filter((task) => task.status !== "Complete" && daysUntil(task.dueDate) <= 7).length;
+  const dailyPlan = selectors.getAllTasks(state)
+    .filter((task) => task.status !== "Complete")
+    .sort((a, b) => {
+      const priorityRank = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+      return (priorityRank[a.priority] ?? 4) - (priorityRank[b.priority] ?? 4) || daysUntil(a.dueDate) - daysUntil(b.dueDate);
+    })
+    .slice(0, 3);
 
   return (
     <>
@@ -321,6 +328,7 @@ function DashboardPage({ onNavigate }) {
                   ? `${nextMove.priority} priority - affects ${nextMove.linkedApplicationIds.length} application${nextMove.linkedApplicationIds.length === 1 ? "" : "s"} - ${displayConfidence(nextMove.confidenceLevel)}`
                   : "No open tasks"}
               </span>
+              {nextMove && <em>{explainTaskImportance(nextMove)} {studentActionHint(nextMove)}</em>}
             </div>
             <div className="nextMoveActions">
               {nextMove && <TaskActionButton task={nextMove} />}
@@ -328,11 +336,33 @@ function DashboardPage({ onNavigate }) {
             </div>
           </section>
 
+          <section className="panel studentPlanPanel">
+            <div className="panelHeader">
+              <div>
+                <p>Do these first</p>
+                <h2>Your 3-step plan</h2>
+              </div>
+            </div>
+            <div className="connectedList">
+              {dailyPlan.map((task, index) => (
+                <article className="studentStep" key={task.id}>
+                  <strong>{index + 1}</strong>
+                  <div>
+                    <h3>{task.title}</h3>
+                    <p>{studentActionHint(task)}</p>
+                    <span>{formatDate(task.dueDate)} - {getLinkedApplicationNames(state, task.linkedApplicationIds).join(", ")}</span>
+                  </div>
+                  <TaskActionButton task={task} />
+                </article>
+              ))}
+            </div>
+          </section>
+
           <section className="statsGrid">
-            <StatCard icon={GraduationCap} label="Active applications" value={apps.length} detail={`${groups.length} shared application setup${groups.length === 1 ? "" : "s"}`} />
+            <StatCard icon={GraduationCap} label="Active applications" value={apps.length} detail={`${groups.length} application path${groups.length === 1 ? "" : "s"} to manage`} />
             <StatCard icon={CalendarDays} label="Next deadline" value={deadlines[0] ? formatDate(deadlines[0].dueDate) : "None"} detail={deadlines[0]?.title || "No connected deadline"} />
             <StatCard icon={FilePenLine} label="Essay progress" value={`${essays.filter((essay) => essay.status === "Complete").length}/${essays.length}`} detail="Shared essays count once" />
-            <StatCard icon={CircleAlert} label="Needs verification" value={needsVerification.length} detail={`${dueThisWeek} task${dueThisWeek === 1 ? "" : "s"} due this week`} />
+            <StatCard icon={CircleAlert} label="Things to double-check" value={needsVerification.length} detail={`${dueThisWeek} task${dueThisWeek === 1 ? "" : "s"} due this week`} />
           </section>
 
           <section className="connectedGrid">
@@ -415,6 +445,7 @@ function UniversitiesPage() {
   const [searchError, setSearchError] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const [platformOverrides, setPlatformOverrides] = useState({});
+  const [reviewSource, setReviewSource] = useState(null);
 
   function add(source, overridePlatform) {
     const selectedPlatform = overridePlatform || platform;
@@ -427,6 +458,7 @@ function UniversitiesPage() {
       platform: selectedPlatform,
       source,
     });
+    setReviewSource(null);
   }
 
   function runSearch() {
@@ -454,11 +486,15 @@ function UniversitiesPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Add a university" title="Review application setup">
+      <PageHeader eyebrow="Add a university" title="Find your university">
         <button className="secondaryButton" onClick={() => actions.reset()}><RefreshCw size={17} /> Reset local data</button>
       </PageHeader>
 
       <section className="panel addFlowPanel">
+        <div className="studentExplainer">
+          <strong>Start here</strong>
+          <p>Search for a university, check the detected application path, then review what EdRizz will add to your plan before anything is created.</p>
+        </div>
         <div className="formGrid">
           <label>
             <span>Search universities</span>
@@ -504,14 +540,14 @@ function UniversitiesPage() {
           </label>
         </div>
         <p className="connectedNote">
-          Search uses the configured backend when available, otherwise the project university data source. Shared tasks are detected automatically when applications use the same platform.
+          EdRizz will reuse shared work, like UCAS or Common App essays, when several universities use the same application path.
         </p>
       </section>
 
       <section className="searchStatusRow">
         <div>
           <strong>{isSearching ? "Searching..." : `${resultMeta.total} result${resultMeta.total === 1 ? "" : "s"}`}</strong>
-          <span>{resultMeta.source === "fallback" ? "Using demo fallback because the data source failed." : `Source: ${resultMeta.source || getBackendMode()}`}</span>
+          <span>{resultMeta.source === "fallback" ? "Showing backup results because the university data source failed." : "Showing university matches from your connected data source."}</span>
         </div>
         {searchError && <button className="secondaryButton" onClick={runSearch}><RefreshCw size={16} /> Retry</button>}
       </section>
@@ -595,13 +631,55 @@ function UniversitiesPage() {
               </label>
               <p>{source.notes}</p>
               <small className="sourceTiny">{source.sourceName || "University data source"} - {platformSourceLabel}</small>
-              <button className="primaryButton" disabled={exists} onClick={() => add(source, overridePlatform)}>
-                <Plus size={17} /> {exists ? "Already added" : "Review and add"}
+              <button className="primaryButton" disabled={exists} onClick={() => setReviewSource({ ...source, overridePlatform, detectedPlatform, platformConfidence, platformSourceLabel })}>
+                <Plus size={17} /> {exists ? "Already added" : "Review setup"}
               </button>
             </article>
           );
         })}
       </section>
+
+      {reviewSource && (
+        <section className="reviewOverlay" role="dialog" aria-label="Review application setup">
+          <div className="panel reviewPanel">
+            <div className="detailTopbar">
+              <Breadcrumbs items={[{ label: "Universities", onClick: () => setReviewSource(null) }, { label: reviewSource.name }]} />
+              <button className="secondaryButton" onClick={() => setReviewSource(null)}><X size={17} /> Close</button>
+            </div>
+            <div className="reviewHero">
+              <div>
+                <p>Review before adding</p>
+                <h2>{reviewSource.name}</h2>
+                <span>{programName || reviewSource.defaultProgram} - {reviewSource.country}{reviewSource.city ? `, ${reviewSource.city}` : ""}</span>
+              </div>
+              <div className="badgeRow">
+                <span className="pill">{displayPlatform(reviewSource.detectedPlatform)}</span>
+                <ConfidenceBadge level={reviewSource.platformConfidence} />
+              </div>
+            </div>
+            <section className={`platformPreview ${reviewSource.detectedPlatform === "NeedsVerification" ? "warning" : ""}`}>
+              <strong>Detected platform: {displayPlatform(reviewSource.detectedPlatform)}</strong>
+              <span>Confidence: {displayConfidence(reviewSource.platformConfidence)}</span>
+              <p>{reviewSource.platformReason || "Application platform needs verification before applying."}</p>
+              <small>{reviewSource.platformSourceLabel}</small>
+            </section>
+            <div className="reviewChecklist">
+              <h3>What EdRizz will add to your roadmap</h3>
+              <ul>
+                <li>Application path and university roadmap</li>
+                <li>Deadlines and next tasks</li>
+                <li>Documents you may need, such as transcripts or ID</li>
+                <li>Essay or recommendation items only when the platform/source supports them</li>
+                <li>Double-check tasks for anything we cannot confirm yet</li>
+              </ul>
+            </div>
+            <div className="topActions">
+              <button className="secondaryButton" onClick={() => setReviewSource(null)}>Back to search</button>
+              <button className="primaryButton" onClick={() => add(reviewSource, reviewSource.overridePlatform)}><Plus size={17} /> Add to my plan</button>
+            </div>
+          </div>
+        </section>
+      )}
     </>
   );
 }
@@ -634,12 +712,16 @@ function ApplicationsPage() {
   return (
     <>
       <PageHeader eyebrow="Applications" title="Applications and roadmaps" />
+      <section className="studentExplainer panel">
+        <strong>How to read this</strong>
+        <p>Application paths are the portals you submit through, like UCAS or a direct university portal. University roadmaps are the extra checks for each specific choice.</p>
+      </section>
       <section className="applicationsOverview">
         <div className="panel">
           <div className="panelHeader">
             <div>
-              <p>Shared applications detected</p>
-              <h2>Shared application work</h2>
+              <p>Submit-through paths</p>
+              <h2>Application paths</h2>
             </div>
           </div>
           <div className="connectedList">
@@ -659,7 +741,7 @@ function ApplicationsPage() {
         <div className="panel">
           <div className="panelHeader">
             <div>
-              <p>Individual details</p>
+              <p>University-specific work</p>
               <h2>University roadmaps</h2>
             </div>
           </div>
@@ -711,9 +793,9 @@ function RoadmapView({ mode, group, application, onBack }) {
 
       <section className="nextMoveHero roadmapHero">
         <div>
-          <p>{isGroup ? "Grouped platform roadmap" : "University roadmap"}</p>
+          <p>{isGroup ? "Shared application path" : "University roadmap"}</p>
           <h2>{isGroup ? group.name : application.universityName}</h2>
-          <span>{linkedApps.length} linked university choice{linkedApps.length === 1 ? "" : "s"} - shared tasks update every linked application</span>
+          <span>{linkedApps.length} linked university choice{linkedApps.length === 1 ? "" : "s"} - finish shared tasks once and every linked application updates</span>
         </div>
         <div>
           <ProgressBar value={isGroup ? group.progressPercentage : application.progressPercentage} />
@@ -743,7 +825,7 @@ function RoadmapView({ mode, group, application, onBack }) {
         <div className="panel taskColumn">
           <div className="panelHeader">
             <div>
-              <p>Linked shared tasks</p>
+              <p>What to do</p>
               <h2>Tasks</h2>
             </div>
           </div>
@@ -760,7 +842,7 @@ function RoadmapView({ mode, group, application, onBack }) {
                 />
                 <span>
                   <strong>{task.title}</strong>
-                  <small>{task.type} - {task.linkedApplicationIds.length} linked app{task.linkedApplicationIds.length === 1 ? "" : "s"}</small>
+                  <small>{studentActionHint(task)} - {task.linkedApplicationIds.length} linked app{task.linkedApplicationIds.length === 1 ? "" : "s"}</small>
                 </span>
                 <ConfidenceBadge level={task.confidenceLevel} />
               </button>
@@ -786,6 +868,12 @@ function TaskDetailPanel({ task }) {
         <ConfidenceBadge level={task.confidenceLevel} />
       </div>
       <p>{task.description || "No description supplied."}</p>
+      <section className="studentHelpBox">
+        <strong>Why this matters</strong>
+        <p>{explainTaskImportance(task)}</p>
+        <strong>What to do next</strong>
+        <p>{studentActionHint(task)}</p>
+      </section>
       <dl className="detailFacts">
         <div><dt>Due</dt><dd>{formatDate(task.dueDate)}</dd></div>
         <div><dt>Priority</dt><dd>{task.priority}</dd></div>
@@ -854,6 +942,12 @@ function EssaysPage() {
               <Breadcrumbs items={[{ label: "Essays", onClick: () => setSelectedId(null) }, { label: selected.title }]} />
               <h2>{selected.title}</h2>
               <p>{selected.prompt}</p>
+              <section className="studentHelpBox">
+                <strong>What this is</strong>
+                <p>{selected.essayType === "UCASPersonalStatement" ? "This is the main essay sent with your UCAS choices. You write it once, and every linked UCAS choice uses it." : "This writing item belongs to the linked application or scholarship shown below."}</p>
+                <strong>How to start</strong>
+                <p>Write a rough first draft first. Focus on why you want the subject, what you have done to explore it, and what you hope to build next.</p>
+              </section>
               {editingId ? (
                 <section className="essayEditorPanel">
                   <textarea
@@ -903,10 +997,14 @@ function DocumentsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Documents" title="Shared document requirements" />
+      <PageHeader eyebrow="Documents" title="Documents to collect" />
       {documents.length === 0 ? <EmptyState title="No documents yet" /> : (
         <section className="twoColumnLayout">
           <div className="panel connectedList">
+            <section className="studentExplainer">
+              <strong>Start with shared documents</strong>
+              <p>Some documents, like your transcript or passport, can be used across many applications. Upload or mark them once and every linked application updates.</p>
+            </section>
             <section className="compactForm">
               <input value={customDoc.title} onChange={(event) => setCustomDoc({ ...customDoc, title: event.target.value })} placeholder="Add custom document" />
               <select value={customDoc.category} onChange={(event) => setCustomDoc({ ...customDoc, category: event.target.value })}>
@@ -935,6 +1033,12 @@ function DocumentsPage() {
               <Breadcrumbs items={[{ label: "Documents", onClick: () => setSelectedId(null) }, { label: selected.title }]} />
               <h2>{selected.title}</h2>
               <p>{selected.description}</p>
+              <section className="studentHelpBox">
+                <strong>Who can help?</strong>
+                <p>{documentHelpText(selected)}</p>
+                <strong>Does it block submission?</strong>
+                <p>{selected.blocksSubmission ? "Yes. Do this before you expect to submit the linked applications." : "Usually not, but keep it ready so portals and visa steps are easier later."}</p>
+              </section>
               <dl className="detailFacts">
                 <div><dt>Category</dt><dd>{selected.category || "Needs verification"}</dd></div>
                 <div><dt>Required</dt><dd>{selected.required ? "Required" : "Optional / not required"}</dd></div>
@@ -974,12 +1078,13 @@ function RecommendersPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Recommenders" title="References and recommenders" />
+      <PageHeader eyebrow="Recommenders" title="People who support your application" />
       {recs.length === 0 ? <EmptyState title="No recommender requirements yet" /> : (
         <section className="twoColumnLayout">
           <div className="panel connectedList">
             <section className="groupBlock">
               <h2>Recommendation requirements</h2>
+              <p className="connectedNote">A requirement is what the application needs. A person is the teacher, counselor, or adviser who will send it.</p>
             </section>
             {Object.entries(grouped).map(([platformName, items]) => (
               <section className="groupBlock" key={platformName}>
@@ -998,7 +1103,12 @@ function RecommendersPage() {
             ))}
             <section className="groupBlock">
               <h2>Recommender people</h2>
-              {people.length === 0 ? <p className="connectedNote">No people assigned yet. Requirements can still be tracked by platform.</p> : people.map((person) => (
+              {people.length === 0 ? (
+                <div className="studentHelpBox">
+                  <strong>No people assigned yet</strong>
+                  <p>Start by choosing a teacher, counselor, or adviser who knows your work. Ask early and share your deadline plus a short brag sheet.</p>
+                </div>
+              ) : people.map((person) => (
                 <article className="connectedRow" key={person.id}>
                   <div><strong>{person.name}</strong><span>{person.role}</span></div>
                   <StatusPill value={person.status || "NotRequested"} />
@@ -1010,6 +1120,12 @@ function RecommendersPage() {
             <aside className="panel detailPanel">
               <Breadcrumbs items={[{ label: "Recommenders", onClick: () => setSelectedId(null) }, { label: selected.title }]} />
               <h2>{selected.title}</h2>
+              <section className="studentHelpBox">
+                <strong>What to ask for</strong>
+                <p>{selected.platform === "UCAS" ? "For UCAS, your school usually adds one shared reference. Ask your counselor or school adviser who handles UCAS references." : "Ask the assigned person whether they can submit this recommendation before the due date."}</p>
+                <strong>Make it easy for them</strong>
+                <p>Send your program list, deadline, achievements, and a short note about why you are applying.</p>
+              </section>
               <dl className="detailFacts">
                 <div><dt>Due</dt><dd>{formatDate(selected.dueDate)}</dd></div>
                 <div><dt>Linked apps</dt><dd>{getLinkedApplicationNames(state, selected.linkedApplicationIds).join(", ")}</dd></div>
@@ -1034,19 +1150,23 @@ function ScholarshipsPage() {
   const scholarships = selectors.getAllScholarships(state);
   return (
     <>
-      <PageHeader eyebrow="Scholarships" title="Funding items with verification visible" />
+      <PageHeader eyebrow="Scholarships" title="Funding to research" />
       {scholarships.length === 0 ? <EmptyState title="No scholarship items yet" /> : (
         <section className="connectedGrid three">
           {scholarships.map((scholarship) => (
             <article className="panel sourceCard" key={scholarship.id}>
               <h2>{scholarship.title}</h2>
-              <p>{scholarship.notes}</p>
+              <p>{scholarship.notes || "Check whether this funding option applies to you before spending time on an application."}</p>
               <div className="badgeRow">
                 <StatusPill value={scholarship.status} />
                 <ConfidenceBadge level={scholarship.confidenceLevel} />
               </div>
-              <p>Deadline: {formatDate(state.deadlines[scholarship.deadlineId]?.dueDate)}</p>
-              <p>Linked: {getLinkedApplicationNames(state, scholarship.linkedApplicationIds).join(", ")}</p>
+              <section className="studentHelpBox">
+                <strong>Next step</strong>
+                <p>Open the official funding page, check eligibility, then add any confirmed essay or document requirements.</p>
+              </section>
+              <p>Possible deadline: {formatDate(state.deadlines[scholarship.deadlineId]?.dueDate)}</p>
+              <p>Linked application: {getLinkedApplicationNames(state, scholarship.linkedApplicationIds).join(", ")}</p>
             </article>
           ))}
         </section>
@@ -1067,12 +1187,21 @@ function DeadlinesPage() {
     <>
       <PageHeader eyebrow="Deadlines" title="Upcoming dates and readiness" />
       <section className="panel addDeadlineBar">
-        <input value={newDeadline.title} onChange={(event) => setNewDeadline({ ...newDeadline, title: event.target.value })} placeholder="Add custom deadline" />
-        <input type="date" value={newDeadline.dueDate} onChange={(event) => setNewDeadline({ ...newDeadline, dueDate: event.target.value })} />
-        <select value={newDeadline.applicationId} onChange={(event) => setNewDeadline({ ...newDeadline, applicationId: event.target.value })}>
-          <option value="">First application</option>
-          {selectors.getApplications(state).map((app) => <option value={app.id} key={app.id}>{app.universityName}</option>)}
-        </select>
+        <label>
+          <span>Deadline name</span>
+          <input value={newDeadline.title} onChange={(event) => setNewDeadline({ ...newDeadline, title: event.target.value })} placeholder="Add custom deadline" />
+        </label>
+        <label>
+          <span>Date</span>
+          <input type="date" value={newDeadline.dueDate} onChange={(event) => setNewDeadline({ ...newDeadline, dueDate: event.target.value })} />
+        </label>
+        <label>
+          <span>Application</span>
+          <select value={newDeadline.applicationId} onChange={(event) => setNewDeadline({ ...newDeadline, applicationId: event.target.value })}>
+            <option value="">First application</option>
+            {selectors.getApplications(state).map((app) => <option value={app.id} key={app.id}>{app.universityName}</option>)}
+          </select>
+        </label>
         <button className="primaryButton" onClick={() => actions.addDeadline(newDeadline)}><Plus size={17} /> Add deadline</button>
       </section>
       {deadlines.length === 0 ? <EmptyState title="No deadlines yet" /> : (
@@ -1085,7 +1214,7 @@ function DeadlinesPage() {
                   <button className="overviewButton" key={deadline.id} onClick={() => setSelectedId(deadline.id)}>
                     <div>
                       <strong>{deadline.title}</strong>
-                      <span>{formatDate(deadline.dueDate)} - {deadline.type} - {deadline.linkedApplicationIds.length} linked</span>
+                      <span>{formatDate(deadline.dueDate)} - {deadline.type} - {deadline.linkedApplicationIds.length} linked - {deadlineReadinessHint(deadline)}</span>
                     </div>
                     <RiskBadge value={deadline.riskLevel} />
                     <ConfidenceBadge level={deadline.confidenceLevel} />
@@ -1099,6 +1228,19 @@ function DeadlinesPage() {
               <Breadcrumbs items={[{ label: "Deadlines", onClick: () => setSelectedId(null) }, { label: selected.title }]} />
               <h2>{selected.title}</h2>
               <ProgressBar value={selected.readinessPercentage} />
+              <section className="studentHelpBox">
+                <strong>What readiness means</strong>
+                <p>{deadlineReadinessHint(selected)} Readiness improves when linked essays, documents, recommendations, and tasks are completed.</p>
+                <strong>Before this date</strong>
+                <p>{selected.dependencyTaskIds?.length ? "Finish the missing linked tasks below before you submit." : "No linked blockers are listed yet. Still verify this deadline on the official site."}</p>
+              </section>
+              {selected.dependencyTaskIds?.length > 0 && (
+                <div className="miniDependencyList">
+                  {selected.dependencyTaskIds.map((taskId) => state.tasks[taskId]).filter(Boolean).map((task) => (
+                    <span key={task.id}>{task.status === "Complete" ? "Done" : "Missing"}: {task.title}</span>
+                  ))}
+                </div>
+              )}
               <dl className="detailFacts">
                 <div><dt>Due</dt><dd>{formatDate(selected.dueDate)} {selected.dueTime || ""}</dd></div>
                 <div><dt>Linked apps</dt><dd>{getLinkedApplicationNames(state, selected.linkedApplicationIds).join(", ")}</dd></div>
@@ -1141,6 +1283,10 @@ function TasksPage() {
   return (
     <>
       <PageHeader eyebrow="Tasks" title="What to work on next" />
+      <section className="studentExplainer panel">
+        <strong>Use this as your daily checklist</strong>
+        <p>Student tasks are things you can do yourself. Verification tasks mean EdRizz is asking you to double-check the official university page before relying on the item.</p>
+      </section>
       <div className="deadlineQuickFilters">
         {[
           ["all", "All"],
@@ -1172,10 +1318,14 @@ function TasksPage() {
                   />
                   <span>
                     <strong>{task.title}</strong>
-                    <small>{formatDate(task.dueDate)} - {task.priority} - {task.description || "Keeps your application moving"} - {getLinkedApplicationNames(state, task.linkedApplicationIds).join(", ")}</small>
+                    <small>{formatDate(task.dueDate)} - {task.priority} - {studentActionHint(task)} - {getLinkedApplicationNames(state, task.linkedApplicationIds).join(", ")}</small>
+                    <em>{explainTaskImportance(task)}</em>
                   </span>
                   <StatusPill value={task.status} />
                   <ConfidenceBadge level={task.confidenceLevel} />
+                  <button className="secondaryButton" onClick={() => actions.updateTaskStatus(task.id, task.status === "Complete" ? "InProgress" : "Complete")}>
+                    {taskActionLabel(task)}
+                  </button>
                 </article>
               ))}
             </section>
@@ -1220,12 +1370,21 @@ function CalendarPage() {
         <button className="secondaryButton" onClick={() => setViewMode(viewMode === "list" ? "month" : "list")}>{viewMode === "list" ? "Month view" : "List view"}</button>
       </PageHeader>
       <section className="panel addDeadlineBar">
-        <input value={newEvent.title} onChange={(event) => setNewEvent({ ...newEvent, title: event.target.value })} placeholder="Add custom event" />
-        <input type="date" value={newEvent.dueDate} onChange={(event) => setNewEvent({ ...newEvent, dueDate: event.target.value })} />
-        <select value={newEvent.applicationId} onChange={(event) => setNewEvent({ ...newEvent, applicationId: event.target.value })}>
-          <option value="">First application</option>
-          {selectors.getApplications(state).map((app) => <option value={app.id} key={app.id}>{app.universityName}</option>)}
-        </select>
+        <label>
+          <span>Event name</span>
+          <input value={newEvent.title} onChange={(event) => setNewEvent({ ...newEvent, title: event.target.value })} placeholder="Add custom event" />
+        </label>
+        <label>
+          <span>Date</span>
+          <input type="date" value={newEvent.dueDate} onChange={(event) => setNewEvent({ ...newEvent, dueDate: event.target.value })} />
+        </label>
+        <label>
+          <span>Application</span>
+          <select value={newEvent.applicationId} onChange={(event) => setNewEvent({ ...newEvent, applicationId: event.target.value })}>
+            <option value="">First application</option>
+            {selectors.getApplications(state).map((app) => <option value={app.id} key={app.id}>{app.universityName}</option>)}
+          </select>
+        </label>
         <button className="primaryButton" onClick={() => newEvent.title && actions.addDeadline({ ...newEvent, type: "Task" })}><Plus size={17} /> Add event</button>
       </section>
       <section className="deadlineQuickFilters">
@@ -1247,6 +1406,7 @@ function CalendarPage() {
                   <strong>{formatDate(event.dueDate)}</strong>
                   <span>{event.title}</span>
                   <small>{event.eventKind} - {event.type} - {getLinkedApplicationNames(state, event.linkedApplicationIds).join(", ")}</small>
+                  <em>{event.eventKind === "Deadline" ? deadlineReadinessHint(event) : studentActionHint(event)}</em>
                   <ConfidenceBadge level={event.confidenceLevel} />
                 </button>
               )
@@ -1256,6 +1416,10 @@ function CalendarPage() {
             <aside className="panel detailPanel">
               <Breadcrumbs items={[{ label: "Calendar", onClick: () => setSelectedId(null) }, { label: selected.title }]} />
               <h2>{selected.title}</h2>
+              <section className="studentHelpBox">
+                <strong>What to do before this</strong>
+                <p>{selected.eventKind === "Deadline" ? deadlineReadinessHint(selected) : studentActionHint(selected)}</p>
+              </section>
               <dl className="detailFacts">
                 <div><dt>Date</dt><dd>{formatDate(selected.dueDate)}</dd></div>
                 <div><dt>Type</dt><dd>{selected.eventKind} - {selected.type}</dd></div>
@@ -1276,6 +1440,7 @@ function CalendarPage() {
 function SettingsPage() {
   const { state, actions } = useAdmissions();
   const [draft, setDraft] = useState(state.settings);
+  const [confirmReset, setConfirmReset] = useState(false);
   const exportData = () => {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1291,6 +1456,10 @@ function SettingsPage() {
       <PageHeader eyebrow="Settings" title="Profile and data preferences">
         <button className="primaryButton" onClick={() => actions.updateSettings(draft)}><Check size={17} /> Save preferences</button>
       </PageHeader>
+      <section className="studentExplainer panel">
+        <strong>These settings shape your plan</strong>
+        <p>Countries, majors, intake, and timezone help EdRizz suggest better searches, dates, reminders, and application defaults.</p>
+      </section>
       <section className="panel settingsGrid">
         <label>
           <span>Target countries</span>
@@ -1328,12 +1497,16 @@ function SettingsPage() {
           <input value={draft.deadlineReminderDays} onChange={(event) => setDraft({ ...draft, deadlineReminderDays: event.target.value })} />
         </label>
         <label>
-          <span>Data source</span>
+          <span>University data mode</span>
           <input readOnly value={getBackendMode()} />
         </label>
         <div className="settingsActions">
           <button className="secondaryButton" type="button" onClick={exportData}>Export data</button>
-          <button className="secondaryButton" type="button" onClick={() => actions.reset()}><RefreshCw size={17} /> Reset local data</button>
+          {confirmReset ? (
+            <button className="dangerButton" type="button" onClick={() => actions.reset()}><RefreshCw size={17} /> Confirm reset</button>
+          ) : (
+            <button className="secondaryButton" type="button" onClick={() => setConfirmReset(true)}><RefreshCw size={17} /> Reset saved demo data</button>
+          )}
         </div>
       </section>
     </>
@@ -1344,9 +1517,59 @@ function TaskActionButton({ task }) {
   const { actions } = useAdmissions();
   return (
     <button className="primaryButton" onClick={() => actions.updateTaskStatus(task.id, task.status === "Complete" ? "InProgress" : "Complete")}>
-      <Check size={17} /> {task.status === "Complete" ? "Reopen" : "Complete"}
+      <Check size={17} /> {task.status === "Complete" ? "Reopen" : taskActionLabel(task)}
     </button>
   );
+}
+
+function taskActionLabel(task = {}) {
+  const labels = {
+    Essay: "Start writing",
+    Document: "Upload document",
+    Recommendation: "Ask recommender",
+    Verification: "Check official page",
+    Scholarship: "Research funding",
+    Payment: "Prepare payment",
+    Review: "Review application",
+    Application: "Work on application",
+  };
+  return labels[task.type] || "Complete task";
+}
+
+function studentActionHint(task = {}) {
+  if (task.type === "Essay") return "Open the editor and write a rough first draft.";
+  if (task.type === "Document") return "Find the file, upload it, or ask your school for it.";
+  if (task.type === "Recommendation") return "Ask the right teacher or counselor and share the deadline.";
+  if (task.type === "Verification") return "Open the official university page and confirm the detail.";
+  if (task.type === "Scholarship") return "Check eligibility before spending time on the application.";
+  if (task.type === "Payment") return "Check the portal fee and how you can pay it.";
+  if (task.type === "Review") return "Read through the application before submitting.";
+  return task.description || "This keeps your application moving.";
+}
+
+function explainTaskImportance(task = {}) {
+  const linked = task.linkedApplicationIds?.length || 0;
+  const shared = linked > 1 ? `It affects ${linked} applications, so finishing it once helps several choices.` : "It affects one application.";
+  if (task.confidenceLevel === "NeedsVerification" || task.type === "Verification") return `${shared} This is a double-check item, so do not treat it as confirmed until you verify it.`;
+  if (task.required) return `${shared} It is required or likely to block progress if left unfinished.`;
+  return `${shared} It helps keep your plan accurate and ready.`;
+}
+
+function documentHelpText(doc = {}) {
+  const title = String(doc.title || "").toLowerCase();
+  if (title.includes("transcript")) return "Ask your school counselor, registrar, or exams office for an official transcript.";
+  if (title.includes("predicted")) return "Ask your counselor or subject teachers who provide predicted grades.";
+  if (title.includes("passport")) return "Use the photo/ID page of your passport, and make sure it is not expired.";
+  if (title.includes("english")) return "Use IELTS, TOEFL, Duolingo, or another accepted English test only if the university requires it.";
+  return "Check the linked application instructions, then upload the file or mark it not required if the official source says so.";
+}
+
+function deadlineReadinessHint(deadline = {}) {
+  const readiness = deadline.readinessPercentage || 0;
+  if (deadline.status === "Submitted") return "Submitted. Keep proof of submission somewhere safe.";
+  if (readiness >= 80) return "Almost ready. Do a final check before the date.";
+  if (readiness >= 40) return "Partly ready. Finish the missing linked tasks next.";
+  return "Not ready yet. Check the linked tasks before this date.";
 }
 
 function groupBy(items, getter) {
