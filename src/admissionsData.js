@@ -1,5 +1,6 @@
 import { clearLocalState, readLocalState, writeLocalState } from "./services/backendClient.js";
 import { FALLBACK_UNIVERSITY_SOURCES } from "./services/demoSeedData.js";
+import { inferApplicationPlatform } from "./services/platformInference.js";
 
 export const CONFIDENCE_LABELS = ["Verified", "PlatformDefault", "AIExtracted", "UserEntered", "NeedsVerification", "Outdated"];
 
@@ -130,10 +131,12 @@ function findSource({ name, country }) {
 
 export function determinePlatform({ country, level, manualPlatform, sourcePlatform, platformConfidenceLevel }) {
   if (manualPlatform && manualPlatform !== "Auto") return manualPlatform;
-  if (sourcePlatform && sourcePlatform !== "Auto" && sourcePlatform !== "NeedsVerification") return sourcePlatform;
-  if ((country || "").toLowerCase().includes("united kingdom") && (level || "").toLowerCase().includes("undergraduate")) return "UCAS";
-  if (platformConfidenceLevel === "Verified" && sourcePlatform) return sourcePlatform;
-  return "NeedsVerification";
+  return inferApplicationPlatform({
+    country,
+    degreeLevel: level,
+    backendPlatform: sourcePlatform,
+    sourceConfidence: platformConfidenceLevel,
+  }).platform;
 }
 
 export function addUniversityApplication(state, payload) {
@@ -146,6 +149,24 @@ export function addUniversityApplication(state, payload) {
     sourcePlatform: source.platform || source.applicationPlatform,
     platformConfidenceLevel: source.platformConfidenceLevel,
   });
+  const platformInference = inferApplicationPlatform({
+    universityName: source.name,
+    country: payload.country || source.country,
+    regionOrState: source.region || source.state || source.province || source.city,
+    degreeLevel: level,
+    applicationType: source.applicationType,
+    backendPlatform: source.platform || source.applicationPlatform,
+    sourceConfidence: source.platformConfidenceLevel,
+  });
+  const userOverrodePlatform = Boolean(payload.platform && payload.platform !== "Auto" && payload.platform !== platformInference.platform);
+  const platformMeta = {
+    platform,
+    platformConfidence: userOverrodePlatform ? "UserEntered" : (source.platformConfidenceLevel || platformInference.confidenceLevel),
+    platformSource: userOverrodePlatform ? "User override" : (source.platformSource || platformInference.source),
+    platformReason: userOverrodePlatform ? "You selected this platform before adding the university." : (source.platformReason || platformInference.reason),
+    platformAlternatives: source.platformAlternatives || platformInference.alternatives,
+    userOverrodePlatform,
+  };
   const universityId = `uni-${slug(source.name)}`;
   const programName = payload.programName || source.defaultProgram || "Program to confirm";
   const programId = `program-${slug(source.name)}-${slug(programName)}`;
@@ -171,6 +192,7 @@ export function addUniversityApplication(state, payload) {
     city: source.city,
     website: source.website,
     admissionsUrl: source.admissionsUrl,
+    ...platformMeta,
     ...sourceMeta,
   };
 
@@ -181,6 +203,7 @@ export function addUniversityApplication(state, payload) {
     degreeType: level === "undergraduate" ? "Undergraduate" : "Graduate",
     intake: payload.intake || "Fall 2027",
     applicationPlatform: platform,
+    ...platformMeta,
     courseUrl: source.courseUrl,
     requirements: [
       requirement(`req-${applicationId}-course`, "Course entry requirements", true, sourceMeta),
@@ -197,6 +220,7 @@ export function addUniversityApplication(state, payload) {
     programName,
     country: payload.country || source.country,
     platform,
+    ...platformMeta,
     status: "Planning",
     riskLevel: "Medium",
     progressPercentage: 0,

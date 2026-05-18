@@ -1,5 +1,6 @@
 import { getBackendMode, requestBackend } from "./backendClient.js";
 import { FALLBACK_UNIVERSITY_SOURCES } from "./demoSeedData.js";
+import { inferApplicationPlatform } from "./platformInference.js";
 
 const QS_RANKINGS_URL = "/qs-rankings-2026.json";
 let rankingsCache = null;
@@ -26,7 +27,7 @@ export const universityService = {
 
       const rankings = await loadRankings();
       const enriched = rankings.map((row) => normalizeRankingUniversity(row, level));
-      const fallback = FALLBACK_UNIVERSITY_SOURCES.map((item) => ({ ...item, dataSource: "demoFallback" }));
+      const fallback = FALLBACK_UNIVERSITY_SOURCES.map((item) => normalizeFallbackUniversity(item, level));
       const merged = mergeByName([...fallback, ...enriched]);
       const results = merged
         .filter((item) => matchesUniversitySearch(item, normalizedQuery, filters))
@@ -40,7 +41,7 @@ export const universityService = {
     } catch (error) {
       const results = FALLBACK_UNIVERSITY_SOURCES
         .filter((item) => matchesUniversitySearch(item, normalizedQuery, filters))
-        .map((item) => ({ ...item, dataSource: "demoFallback" }));
+        .map((item) => normalizeFallbackUniversity(item, level));
       return {
         results,
         source: "fallback",
@@ -59,22 +60,56 @@ async function loadRankings() {
   return rankingsCache;
 }
 
+function normalizeFallbackUniversity(item, level) {
+  const platformInference = inferApplicationPlatform({
+    universityName: item.name,
+    country: item.country,
+    regionOrState: item.region || item.state || item.province || item.city,
+    degreeLevel: level,
+    applicationType: item.applicationType,
+    backendPlatform: item.platformConfidenceLevel === "Verified" ? item.platform : undefined,
+    sourceConfidence: item.platformConfidenceLevel,
+  });
+  return {
+    ...item,
+    level,
+    platform: platformInference.platform,
+    platformConfidenceLevel: platformInference.confidenceLevel,
+    platformSource: platformInference.source,
+    platformReason: item.platformReason || platformInference.reason,
+    platformAlternatives: item.platformAlternatives || platformInference.alternatives,
+    dataSource: "demoFallback",
+  };
+}
+
 function normalizeBackendUniversity(item, level) {
+  const platformInference = inferApplicationPlatform({
+    universityName: item.name,
+    country: item.country,
+    regionOrState: item.region || item.state || item.province,
+    degreeLevel: level,
+    applicationType: item.applicationType,
+    backendPlatform: item.applicationPlatform || item.platform,
+    sourceConfidence: item.platformConfidenceLevel || item.confidenceLevel,
+  });
   return {
     key: item.id || slug(item.name),
     name: item.name,
     aliases: item.aliases || [item.name],
     country: item.country,
     city: item.city,
-    region: item.region,
+    region: item.region || item.state || item.province,
     rank: item.rank,
     website: item.website,
     admissionsUrl: item.admissionsUrl || item.website,
     programs: item.programs || [],
     defaultProgram: item.defaultProgram || item.programName || inferProgramName(item, level),
     level,
-    platform: item.applicationPlatform || item.platform || inferPlatform(item.country, level, true),
-    platformConfidenceLevel: item.applicationPlatform || item.platform ? "Verified" : platformConfidence(item.country, level),
+    platform: platformInference.platform,
+    platformConfidenceLevel: platformInference.confidenceLevel,
+    platformSource: platformInference.source,
+    platformReason: platformInference.reason,
+    platformAlternatives: platformInference.alternatives,
     confidenceLevel: item.confidenceLevel || "Verified",
     sourceName: item.sourceName || "Backend university data",
     sourceUrl: item.sourceUrl || item.admissionsUrl || item.website,
@@ -86,6 +121,12 @@ function normalizeBackendUniversity(item, level) {
 
 function normalizeRankingUniversity(row, level) {
   const country = normalizeCountry(row.country);
+  const platformInference = inferApplicationPlatform({
+    universityName: row.name,
+    country,
+    regionOrState: row.region || row.state || row.province || row.city,
+    degreeLevel: level,
+  });
   return {
     key: `qs-${slug(row.name)}`,
     name: row.name,
@@ -100,8 +141,11 @@ function normalizeRankingUniversity(row, level) {
     programs: [],
     defaultProgram: inferProgramName(row, level),
     level,
-    platform: inferPlatform(country, level, false),
-    platformConfidenceLevel: platformConfidence(country, level),
+    platform: platformInference.platform,
+    platformConfidenceLevel: platformInference.confidenceLevel,
+    platformSource: platformInference.source,
+    platformReason: platformInference.reason,
+    platformAlternatives: platformInference.alternatives,
     confidenceLevel: "AIExtracted",
     sourceName: "QS 2026 data source",
     sourceUrl: row.website || "",
@@ -113,19 +157,6 @@ function normalizeRankingUniversity(row, level) {
 function inferProgramName(item, level) {
   const major = item.programName || item.major || "Computer Science";
   return level === "graduate" ? `${major} program` : `Undergraduate ${major}`;
-}
-
-function inferPlatform(country, level, fromBackend) {
-  const normalized = normalize(country);
-  if (fromBackend) return "NeedsVerification";
-  if (normalized.includes("united kingdom") && normalize(level).includes("undergraduate")) return "UCAS";
-  return "NeedsVerification";
-}
-
-function platformConfidence(country, level) {
-  const normalized = normalize(country);
-  if (normalized.includes("united kingdom") && normalize(level).includes("undergraduate")) return "PlatformDefault";
-  return "NeedsVerification";
 }
 
 function matchesUniversitySearch(item, query, filters) {

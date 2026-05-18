@@ -414,15 +414,17 @@ function UniversitiesPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
+  const [platformOverrides, setPlatformOverrides] = useState({});
 
-  function add(source) {
+  function add(source, overridePlatform) {
+    const selectedPlatform = overridePlatform || platform;
     actions.addUniversity({
       name: source.name,
       country: source.country,
       programName: programName || source.defaultProgram,
       intake,
       level: degreeLevel,
-      platform,
+      platform: selectedPlatform,
       source,
     });
   }
@@ -533,7 +535,7 @@ function UniversitiesPage() {
               country: country || "Needs verification",
               city,
               defaultProgram: programName || "Program to confirm",
-              platform: platform === "Auto" ? "NeedsVerification" : platform,
+              platform: platform === "Auto" ? undefined : platform,
               platformConfidenceLevel: "UserEntered",
               confidenceLevel: "UserEntered",
               sourceName: "User-entered",
@@ -548,6 +550,16 @@ function UniversitiesPage() {
       <section className="connectedGrid three">
         {results.map((source) => {
           const exists = Object.values(state.universities).some((university) => university.name === source.name);
+          const overridePlatform = platformOverrides[source.key] || "Auto";
+          const detectedPlatform = overridePlatform === "Auto" ? source.platform : overridePlatform;
+          const platformConfidence = overridePlatform === "Auto" ? source.platformConfidenceLevel : "UserEntered";
+          const platformSourceLabel = overridePlatform !== "Auto"
+            ? "User selected"
+            : source.platformSource === "source" && source.platformConfidenceLevel === "Verified"
+              ? "Verified from source"
+            : source.platformSource === "uncertain"
+                ? "Needs verification"
+                : "Inferred from country/application type";
           return (
             <article className="panel sourceCard" key={source.key}>
               <div>
@@ -555,13 +567,35 @@ function UniversitiesPage() {
                 <p>{source.country}{source.city ? ` - ${source.city}` : ""} - {source.defaultProgram}</p>
               </div>
               <div className="badgeRow">
-                <span className="pill">{displayPlatform(source.platform)}</span>
+                <span className="pill" title={source.platformReason || "Application platform detection"}>{displayPlatform(detectedPlatform)}</span>
                 {source.rank && <span className="rankPill">QS #{source.rank}</span>}
-                <ConfidenceBadge level={source.confidenceLevel} />
+                <ConfidenceBadge level={platformConfidence} />
               </div>
+              <div className={`platformPreview ${detectedPlatform === "NeedsVerification" ? "warning" : ""}`}>
+                <strong>Detected platform: {displayPlatform(detectedPlatform)}</strong>
+                <span>Confidence: {displayConfidence(platformConfidence)}</span>
+                <p>{source.platformReason || "Application platform needs verification before applying."}</p>
+                <small>{platformSourceLabel}</small>
+                {detectedPlatform === "NeedsVerification" && (
+                  <em>We could not confidently determine the application platform. Please verify on the official admissions page before applying.</em>
+                )}
+              </div>
+              <label className="inlineSelect">
+                <span>Change platform</span>
+                <select
+                  value={overridePlatform}
+                  onChange={(event) => setPlatformOverrides((current) => ({ ...current, [source.key]: event.target.value }))}
+                >
+                  <option value="Auto">Auto ({displayPlatform(source.platform)})</option>
+                  {[source.platform, ...(source.platformAlternatives || []), "CommonApp", "Coalition", "DirectPortal", "NeedsVerification", "Other"]
+                    .filter(Boolean)
+                    .filter((option, index, list) => list.indexOf(option) === index && option !== "Auto")
+                    .map((option) => <option value={option} key={option}>{displayPlatform(option)}</option>)}
+                </select>
+              </label>
               <p>{source.notes}</p>
-              <small className="sourceTiny">{source.sourceName || "University data source"} {source.platformConfidenceLevel === "NeedsVerification" ? "- platform needs verification" : ""}</small>
-              <button className="primaryButton" disabled={exists} onClick={() => add(source)}>
+              <small className="sourceTiny">{source.sourceName || "University data source"} - {platformSourceLabel}</small>
+              <button className="primaryButton" disabled={exists} onClick={() => add(source, overridePlatform)}>
                 <Plus size={17} /> {exists ? "Already added" : "Review and add"}
               </button>
             </article>
@@ -635,6 +669,7 @@ function ApplicationsPage() {
                 <div>
                   <strong>{app.universityName}</strong>
                   <span>{app.programName} - {displayPlatform(app.platform)}</span>
+                  {app.platformReason && <small>{app.platformReason}</small>}
                 </div>
                 <ProgressBar value={app.progressPercentage} />
                 <RiskBadge value={app.riskLevel} />
@@ -684,8 +719,10 @@ function RoadmapView({ mode, group, application, onBack }) {
           <ProgressBar value={isGroup ? group.progressPercentage : application.progressPercentage} />
           <div className="badgeRow">
             <span className="pill">{displayPlatform(isGroup ? group.platform : application.platform)}</span>
+            {!isGroup && application.platformConfidence && <ConfidenceBadge level={application.platformConfidence} />}
             {!isGroup && <RiskBadge value={application.riskLevel} />}
           </div>
+          {!isGroup && application.platformReason && <p className="connectedNote">{application.platformReason}</p>}
         </div>
       </section>
 

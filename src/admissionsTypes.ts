@@ -60,6 +60,12 @@ export interface University extends SourceMeta {
   city?: string;
   website?: string;
   admissionsUrl?: string;
+  platform?: ApplicationPlatform;
+  platformConfidence?: ConfidenceLevel;
+  platformSource?: string;
+  platformReason?: string;
+  platformAlternatives?: ApplicationPlatform[];
+  userOverrodePlatform?: boolean;
 }
 
 export interface Program extends SourceMeta {
@@ -71,6 +77,11 @@ export interface Program extends SourceMeta {
   duration?: string;
   intake?: string;
   applicationPlatform: ApplicationPlatform;
+  platformConfidence?: ConfidenceLevel;
+  platformSource?: string;
+  platformReason?: string;
+  platformAlternatives?: ApplicationPlatform[];
+  userOverrodePlatform?: boolean;
   courseUrl?: string;
   requirements: Requirement[];
 }
@@ -97,6 +108,11 @@ export interface Application {
   programName: string;
   country: string;
   platform: ApplicationPlatform;
+  platformConfidence?: ConfidenceLevel;
+  platformSource?: string;
+  platformReason?: string;
+  platformAlternatives?: ApplicationPlatform[];
+  userOverrodePlatform?: boolean;
   status: ApplicationStatus;
   riskLevel: RiskLevel;
   progressPercentage: number;
