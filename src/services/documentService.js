@@ -22,7 +22,20 @@ export const documentService = {
         headers: {},
       });
     } catch {
-      return saveUploadedFileMetadata(documentId, file);
+      const preview = await buildPreview(file);
+      return saveUploadedFileMetadata(documentId, file, preview);
     }
   },
 };
+
+function buildPreview(file) {
+  if (!file || file.size > 2_000_000) return Promise.resolve({ previewKind: "metadata" });
+  const canPreview = file.type?.startsWith("image/") || file.type === "application/pdf" || file.type?.startsWith("text/");
+  if (!canPreview) return Promise.resolve({ previewKind: "metadata" });
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ previewKind: file.type?.startsWith("image/") ? "image" : file.type === "application/pdf" ? "pdf" : "text", previewDataUrl: reader.result });
+    reader.onerror = () => resolve({ previewKind: "metadata" });
+    reader.readAsDataURL(file);
+  });
+}

@@ -195,7 +195,7 @@ export interface DocumentRequirement extends SourceMeta {
   linkedApplicationIds: string[];
   linkedGroupIds?: string[];
   uploadedFileIds?: string[];
-  uploadedFiles?: Array<{ id: string; name: string; size?: number; type?: string; uploadedAt?: string }>;
+  uploadedFiles?: Array<{ id: string; name: string; size?: number; type?: string; uploadedAt?: string; previewKind?: string; previewDataUrl?: string }>;
 }
 
 export interface RecommenderRequirement extends SourceMeta {

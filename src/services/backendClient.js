@@ -51,7 +51,7 @@ export function clearLocalState() {
   window.localStorage.removeItem(APP_STATE_KEY);
 }
 
-export function saveUploadedFileMetadata(documentId, file) {
+export function saveUploadedFileMetadata(documentId, file, extra = {}) {
   const current = getUploadedFileIndex();
   const metadata = {
     id: `file-${documentId}-${Date.now()}`,
@@ -60,6 +60,7 @@ export function saveUploadedFileMetadata(documentId, file) {
     size: file.size,
     type: file.type || "application/octet-stream",
     uploadedAt: new Date().toISOString(),
+    ...extra,
   };
   window.localStorage.setItem(FILE_INDEX_KEY, JSON.stringify({ ...current, [metadata.id]: metadata }));
   return metadata;

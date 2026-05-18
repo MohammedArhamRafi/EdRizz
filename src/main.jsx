@@ -90,6 +90,10 @@ function AdmissionsProvider({ children }) {
         await essayService.updateEssayContent(essayId, content);
         dispatch({ type: "UPDATE_ESSAY_CONTENT", essayId, content });
       },
+      addCustomEssay: async (payload) => {
+        await essayService.addCustomEssay(payload);
+        dispatch({ type: "ADD_CUSTOM_ESSAY", payload });
+      },
       updateDocumentStatus: async (documentId, status) => {
         await documentService.updateDocumentStatus(documentId, status);
         dispatch({ type: "UPDATE_DOCUMENT_STATUS", documentId, status });
@@ -907,10 +911,28 @@ function EssaysPage() {
   const [selectedId, setSelectedId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState("");
+  const [essaySearch, setEssaySearch] = useState("");
+  const [essayStatus, setEssayStatus] = useState("all");
+  const [essayScope, setEssayScope] = useState("all");
+  const [customEssay, setCustomEssay] = useState({ title: "", prompt: "", applicationId: "", wordLimit: "", dueDate: "2026-12-01" });
   const essays = selectors.getAllEssays(state);
-  const selected = state.essays[editingId] || state.essays[selectedId] || essays[0];
-  const grouped = groupBy(essays, (essay) => essay.linkedGroupIds?.[0] || essay.linkedApplicationIds?.[0] || "custom");
+  const filteredEssays = essays.filter((essay) => {
+    const haystack = [essay.title, essay.prompt, getLinkedApplicationNames(state, essay.linkedApplicationIds).join(" ")].join(" ").toLowerCase();
+    const matchesSearch = !essaySearch || haystack.includes(essaySearch.toLowerCase());
+    const matchesStatus = essayStatus === "all" || essay.status === essayStatus;
+    const matchesScope = essayScope === "all" || essay.linkedApplicationIds.includes(essayScope) || essay.linkedGroupIds?.includes(essayScope);
+    return matchesSearch && matchesStatus && matchesScope;
+  });
+  const selected = state.essays[editingId] || state.essays[selectedId] || filteredEssays[0] || essays[0];
+  const grouped = groupBy(filteredEssays, (essay) => essay.linkedGroupIds?.[0] || essay.linkedApplicationIds?.[0] || "custom");
   const draftWords = countWords(draft);
+  const essayStats = {
+    total: essays.length,
+    drafts: essays.filter((essay) => essay.status === "InProgress").length,
+    notStarted: essays.filter((essay) => essay.status === "NotStarted").length,
+    review: essays.filter((essay) => essay.status === "NeedsReview").length,
+    complete: essays.filter((essay) => essay.status === "Complete").length,
+  };
 
   function openEditor(essay) {
     setSelectedId(essay.id);
@@ -930,12 +952,46 @@ function EssaysPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Essays" title="Shared writing requirements">
+      <PageHeader eyebrow="Essays" title="Essay workspace">
         {editingId ? <button className="secondaryButton" onClick={closeEditor}>Back to essays</button> : selected && <button className="secondaryButton" onClick={() => setSelectedId(null)}>Back to essays</button>}
       </PageHeader>
       {essays.length === 0 ? <EmptyState title="No essays yet" /> : (
         <section className="twoColumnLayout">
-          <div className="panel">
+          <div className="panel connectedList">
+            <section className="artifactDashboard">
+              <Metric label="Total essays" value={essayStats.total} />
+              <Metric label="Not started" value={essayStats.notStarted} />
+              <Metric label="Drafting" value={essayStats.drafts} />
+              <Metric label="Needs review" value={essayStats.review} />
+            </section>
+            <section className="artifactToolbar">
+              <input value={essaySearch} onChange={(event) => setEssaySearch(event.target.value)} placeholder="Search essays or prompts" />
+              <select value={essayStatus} onChange={(event) => setEssayStatus(event.target.value)}>
+                <option value="all">All statuses</option>
+                <option value="NotStarted">Not started</option>
+                <option value="InProgress">Drafting</option>
+                <option value="NeedsReview">Needs review</option>
+                <option value="Complete">Complete</option>
+              </select>
+              <select value={essayScope} onChange={(event) => setEssayScope(event.target.value)}>
+                <option value="all">All applications</option>
+                {selectors.getGroups(state).map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}
+                {selectors.getApplications(state).map((app) => <option value={app.id} key={app.id}>{app.universityName}</option>)}
+              </select>
+            </section>
+            <section className="artifactToolbar customArtifactForm">
+              <input value={customEssay.title} onChange={(event) => setCustomEssay({ ...customEssay, title: event.target.value })} placeholder="Add essay title" />
+              <input value={customEssay.prompt} onChange={(event) => setCustomEssay({ ...customEssay, prompt: event.target.value })} placeholder="Paste prompt or note" />
+              <select value={customEssay.applicationId} onChange={(event) => setCustomEssay({ ...customEssay, applicationId: event.target.value })}>
+                <option value="">First application</option>
+                {selectors.getApplications(state).map((app) => <option value={app.id} key={app.id}>{app.universityName}</option>)}
+              </select>
+              <button className="secondaryButton" onClick={() => {
+                if (!customEssay.title.trim()) return;
+                actions.addCustomEssay(customEssay);
+                setCustomEssay({ title: "", prompt: "", applicationId: "", wordLimit: "", dueDate: "2026-12-01" });
+              }}><Plus size={16} /> Add essay</button>
+            </section>
             {Object.entries(grouped).map(([key, items]) => (
               <section className="groupBlock" key={key}>
                 <h2>{state.applicationGroups[key]?.name || state.applications[key]?.universityName || "Custom essays"}</h2>
@@ -951,6 +1007,7 @@ function EssaysPage() {
                 ))}
               </section>
             ))}
+            {filteredEssays.length === 0 && <EmptyState title="No essays match these filters" />}
           </div>
           {selected && (
             <aside className="panel detailPanel">
@@ -1005,14 +1062,33 @@ function EssaysPage() {
 function DocumentsPage() {
   const { state, actions } = useAdmissions();
   const [selectedId, setSelectedId] = useState(null);
-  const [customDoc, setCustomDoc] = useState({ title: "", category: "Needs verification", applicationId: "" });
+  const [customDoc, setCustomDoc] = useState({ title: "", category: "Needs verification", applicationId: "", required: true });
+  const [docSearch, setDocSearch] = useState("");
+  const [docStatus, setDocStatus] = useState("all");
+  const [docCategory, setDocCategory] = useState("all");
+  const [docScope, setDocScope] = useState("all");
   const documents = selectors.getAllDocuments(state);
-  const selected = state.documents[selectedId] || documents[0];
-  const grouped = groupBy(documents, (doc) => doc.category || (doc.confidenceLevel === "NeedsVerification" ? "Needs verification" : "University-specific"));
+  const filteredDocuments = documents.filter((doc) => {
+    const haystack = [doc.title, doc.description, doc.category, getLinkedApplicationNames(state, doc.linkedApplicationIds).join(" ")].join(" ").toLowerCase();
+    const matchesSearch = !docSearch || haystack.includes(docSearch.toLowerCase());
+    const matchesStatus = docStatus === "all" || doc.status === docStatus;
+    const matchesCategory = docCategory === "all" || (doc.category || "Needs verification") === docCategory;
+    const matchesScope = docScope === "all" || doc.linkedApplicationIds.includes(docScope);
+    return matchesSearch && matchesStatus && matchesCategory && matchesScope;
+  });
+  const selected = state.documents[selectedId] || filteredDocuments[0] || documents[0];
+  const grouped = groupBy(filteredDocuments, (doc) => doc.category || (doc.confidenceLevel === "NeedsVerification" ? "Needs verification" : "University-specific"));
+  const categories = [...new Set(documents.map((doc) => doc.category || "Needs verification"))];
+  const docStats = {
+    total: documents.length,
+    missing: documents.filter((doc) => doc.status !== "Uploaded").length,
+    uploaded: documents.filter((doc) => doc.status === "Uploaded").length,
+    blockers: documents.filter((doc) => doc.blocksSubmission && doc.status !== "Uploaded").length,
+  };
 
   return (
     <>
-      <PageHeader eyebrow="Documents" title="Documents to collect" />
+      <PageHeader eyebrow="Documents" title="Document workspace" />
       {documents.length === 0 ? <EmptyState title="No documents yet" /> : (
         <section className="twoColumnLayout">
           <div className="panel connectedList">
@@ -1020,12 +1096,44 @@ function DocumentsPage() {
               <strong>Start with shared documents</strong>
               <p>Some documents, like your transcript or passport, can be used across many applications. Upload or mark them once and every linked application updates.</p>
             </section>
-            <section className="compactForm">
+            <section className="artifactDashboard">
+              <Metric label="Total documents" value={docStats.total} />
+              <Metric label="Missing" value={docStats.missing} />
+              <Metric label="Uploaded" value={docStats.uploaded} />
+              <Metric label="Blocking submission" value={docStats.blockers} />
+            </section>
+            <section className="artifactToolbar">
+              <input value={docSearch} onChange={(event) => setDocSearch(event.target.value)} placeholder="Search documents" />
+              <select value={docStatus} onChange={(event) => setDocStatus(event.target.value)}>
+                <option value="all">All statuses</option>
+                <option value="Missing">Missing</option>
+                <option value="InProgress">Needs update</option>
+                <option value="Uploaded">Uploaded</option>
+                <option value="NeedsVerification">Needs verification</option>
+              </select>
+              <select value={docCategory} onChange={(event) => setDocCategory(event.target.value)}>
+                <option value="all">All categories</option>
+                {categories.map((category) => <option value={category} key={category}>{category}</option>)}
+              </select>
+              <select value={docScope} onChange={(event) => setDocScope(event.target.value)}>
+                <option value="all">All applications</option>
+                {selectors.getApplications(state).map((app) => <option value={app.id} key={app.id}>{app.universityName}</option>)}
+              </select>
+            </section>
+            <section className="artifactToolbar customArtifactForm">
               <input value={customDoc.title} onChange={(event) => setCustomDoc({ ...customDoc, title: event.target.value })} placeholder="Add custom document" />
               <select value={customDoc.category} onChange={(event) => setCustomDoc({ ...customDoc, category: event.target.value })}>
                 {["Academic", "Identity", "Testing", "Financial", "Portfolio/supporting", "University-specific", "Needs verification"].map((category) => <option key={category}>{category}</option>)}
               </select>
-              <button className="secondaryButton" onClick={() => customDoc.title && actions.addCustomDocument(customDoc)}><Plus size={16} /> Add</button>
+              <select value={customDoc.applicationId} onChange={(event) => setCustomDoc({ ...customDoc, applicationId: event.target.value })}>
+                <option value="">All applications</option>
+                {selectors.getApplications(state).map((app) => <option value={app.id} key={app.id}>{app.universityName}</option>)}
+              </select>
+              <button className="secondaryButton" onClick={() => {
+                if (!customDoc.title.trim()) return;
+                actions.addCustomDocument(customDoc);
+                setCustomDoc({ title: "", category: "Needs verification", applicationId: "", required: true });
+              }}><Plus size={16} /> Add</button>
             </section>
             {Object.entries(grouped).map(([category, items]) => (
               <section className="groupBlock" key={category}>
@@ -1042,6 +1150,7 @@ function DocumentsPage() {
                 ))}
               </section>
             ))}
+            {filteredDocuments.length === 0 && <EmptyState title="No documents match these filters" />}
           </div>
           {selected && (
             <aside className="panel detailPanel">
@@ -1054,6 +1163,7 @@ function DocumentsPage() {
                 <strong>Does it block submission?</strong>
                 <p>{selected.blocksSubmission ? "Yes. Do this before you expect to submit the linked applications." : "Usually not, but keep it ready so portals and visa steps are easier later."}</p>
               </section>
+              <DocumentPreview document={selected} />
               <dl className="detailFacts">
                 <div><dt>Category</dt><dd>{selected.category || "Needs verification"}</dd></div>
                 <div><dt>Required</dt><dd>{selected.required ? "Required" : "Optional / not required"}</dd></div>
@@ -1080,6 +1190,33 @@ function DocumentsPage() {
         </section>
       )}
     </>
+  );
+}
+
+function DocumentPreview({ document }) {
+  const file = document.uploadedFiles?.[document.uploadedFiles.length - 1];
+  if (!file) {
+    return (
+      <section className="documentPreview emptyPreview">
+        <strong>No file preview yet</strong>
+        <p>Upload a PDF, image, or small text file to preview it here. Larger files still save their name, type, and upload date.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="documentPreview">
+      <div>
+        <strong>{file.name}</strong>
+        <span>{file.type || "Unknown file type"} - {formatFileSize(file.size)} - uploaded {file.uploadedAt ? new Date(file.uploadedAt).toLocaleDateString() : "recently"}</span>
+      </div>
+      {file.previewKind === "image" && file.previewDataUrl && <img src={file.previewDataUrl} alt={`Preview of ${file.name}`} />}
+      {file.previewKind === "pdf" && file.previewDataUrl && <iframe src={file.previewDataUrl} title={`Preview of ${file.name}`} />}
+      {file.previewKind === "text" && file.previewDataUrl && <iframe src={file.previewDataUrl} title={`Preview of ${file.name}`} />}
+      {(!file.previewDataUrl || file.previewKind === "metadata") && (
+        <p>This file is tracked, but EdRizz only has metadata available for preview. Open the original file from your device if you need to inspect the contents.</p>
+      )}
+    </section>
   );
 }
 
@@ -1626,6 +1763,13 @@ function deadlineReadinessHint(deadline = {}) {
   if (readiness >= 80) return "Almost ready. Do a final check before the date.";
   if (readiness >= 40) return "Partly ready. Finish the missing linked tasks next.";
   return "Not ready yet. Check the linked tasks before this date.";
+}
+
+function formatFileSize(size) {
+  if (!size) return "size unknown";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function eventTypeClass(type = "") {

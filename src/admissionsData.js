@@ -748,6 +748,8 @@ export function admissionsReducer(state, action) {
       return updateEssayStatus(state, action.essayId, action.status);
     case "UPDATE_ESSAY_CONTENT":
       return updateEssayContent(state, action.essayId, action.content);
+    case "ADD_CUSTOM_ESSAY":
+      return addCustomEssay(state, action.payload);
     case "UPDATE_DOCUMENT_STATUS":
       return updateDocumentStatus(state, action.documentId, action.status);
     case "UPLOAD_DOCUMENT":
@@ -826,6 +828,46 @@ function updateEssayContent(state, essayId, content) {
   });
   next = recalculateAll(next);
   return touchRecent(next, essayId, `${next.essays[essayId].title} saved`);
+}
+
+function addCustomEssay(state, payload) {
+  let next = structuredClone(state);
+  const applicationIds = payload.applicationId ? [payload.applicationId] : Object.keys(next.applications).slice(0, 1);
+  const groupId = payload.groupId || "";
+  const id = `essay-custom-${Date.now()}`;
+  const title = payload.title || "Custom essay";
+  next.essays[id] = {
+    id,
+    title,
+    essayType: "CustomEssay",
+    prompt: payload.prompt || "Add the exact prompt from the official application or scholarship page.",
+    wordLimit: payload.wordLimit ? Number(payload.wordLimit) : undefined,
+    characterLimit: payload.characterLimit ? Number(payload.characterLimit) : undefined,
+    currentWordCount: 0,
+    currentCharacterCount: 0,
+    content: "",
+    status: "NotStarted",
+    linkedApplicationIds: applicationIds,
+    linkedGroupIds: groupId ? [groupId] : [],
+    sourceName: "User-entered",
+    confidenceLevel: "UserEntered",
+    notes: "User-added essay. Verify prompt and limit before submitting.",
+    lastUpdatedAt: nowIso(),
+  };
+  const taskId = `task-${id}`;
+  next.tasks[taskId] = task(taskId, title, "Essay", "High", true, applicationIds, groupId ? [groupId] : [], payload.dueDate || "2026-12-01", "Write, revise, and verify this custom essay prompt.", "UserEntered", { essayId: id });
+  applicationIds.forEach((applicationId) => {
+    if (next.applications[applicationId]) {
+      next.applications[applicationId] = addUniqueId(next.applications[applicationId], "essayIds", id);
+      next.applications[applicationId] = addUniqueId(next.applications[applicationId], "taskIds", taskId);
+    }
+  });
+  if (groupId && next.applicationGroups[groupId]) {
+    next.applicationGroups[groupId] = addUniqueId(next.applicationGroups[groupId], "sharedEssayIds", id);
+    next.applicationGroups[groupId] = addUniqueId(next.applicationGroups[groupId], "sharedTaskIds", taskId);
+  }
+  next = recalculateAll(next);
+  return touchRecent(next, id, `Added essay ${title}`);
 }
 
 function updateDocumentStatus(state, documentId, status) {
